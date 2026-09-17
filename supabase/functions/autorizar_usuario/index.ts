@@ -6,6 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+const ACTIVACION_URL = "https://fafcus.github.io/Sistema-Inventarios-/auth/";
+
 function respuesta(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -136,6 +138,7 @@ Deno.serve(async (req) => {
     } else {
       const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email, {
         data: { nombre: solicitud.nombre },
+        redirectTo: ACTIVACION_URL,
       });
 
       if (inviteData?.user) {
@@ -145,10 +148,6 @@ Deno.serve(async (req) => {
         const mensaje = inviteError.message || "No se pudo crear la cuenta de autenticación.";
         const mensajeNormalizado = mensaje.toLowerCase();
 
-        // Si Supabase bloquea el envío de emails por rate limit, creamos
-        // igualmente la cuenta de Auth sin enviar correo. La solicitud puede
-        // quedar aprobada y el administrador podrá enviar el acceso después
-        // cuando se restablezca el límite de emails.
         if (
           mensajeNormalizado.includes("email rate limit") ||
           mensajeNormalizado.includes("rate limit exceeded") ||
