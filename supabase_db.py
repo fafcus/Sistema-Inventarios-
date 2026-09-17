@@ -25,6 +25,50 @@ def _normalizar_tipo(tipo):
     return {"AGREGAR": "ENTRADA", "RETIRAR": "SALIDA"}.get(tipo, tipo)
 
 
+def _nombre_documento_portable(documento):
+    """
+    Obtiene un nombre visible para el inventario sin depender de la PC
+    donde fue importado originalmente.
+
+    Si `nombre` está vacío, se intenta obtener el nombre desde otros campos
+    y finalmente desde `ruta`. Se soportan rutas Windows y Unix.
+    """
+    if not isinstance(documento, dict):
+        return ""
+
+    nombre = str(documento.get("nombre") or "").strip()
+    if nombre:
+        return nombre
+
+    for campo in ("nombre_archivo", "archivo_origen", "archivo"):
+        valor = str(documento.get(campo) or "").strip()
+        if valor:
+            valor = valor.replace("\\", "/")
+            nombre = valor.rsplit("/", 1)[-1].strip()
+            if nombre:
+                return nombre
+
+    ruta = str(documento.get("ruta") or "").strip()
+    if ruta:
+        ruta = ruta.replace("\\", "/")
+        nombre = ruta.rsplit("/", 1)[-1].strip()
+        if nombre:
+            return nombre
+
+    documento_id = documento.get("id")
+    if documento_id is not None:
+        return f"Inventario #{documento_id}"
+
+    return "Inventario sin nombre"
+
+
+def _normalizar_documento(documento):
+    """Normaliza el nombre solamente en memoria, sin modificar Supabase."""
+    copia = dict(documento or {})
+    copia["nombre"] = _nombre_documento_portable(copia)
+    return copia
+
+
 # ============================================================
 # MATERIALES
 # ============================================================
@@ -82,19 +126,16 @@ def eliminar_material_del_documento(documento_id, material_id):
     if not item:
         raise Exception("El material no pertenece al inventario seleccionado.")
 
-    # Primero eliminamos los ajustes específicos del documento.
     supabase.table("ajustes_stock").delete().eq(
         "documento_id", documento_id
     ).eq(
         "material_id", material_id
     ).execute()
 
-    # Luego eliminamos el vínculo del material con este documento.
     supabase.table("documento_items").delete().eq(
         "id", item["id"]
     ).execute()
 
-    # Verificamos si el material sigue perteneciendo a otro inventario.
     otros = supabase.table("documento_items").select("id").eq(
         "material_id", material_id
     ).limit(1).execute().data or []
@@ -102,9 +143,6 @@ def eliminar_material_del_documento(documento_id, material_id):
     material_eliminado = False
 
     if not otros:
-        # Los movimientos históricos se conservan. Si la base tiene una
-        # FK restrictiva sobre movimientos.material_id, Supabase rechazará
-        # esta operación y el llamador informará el error.
         supabase.table("materiales").delete().eq(
             "id", material_id
         ).execute()
@@ -123,29 +161,53 @@ def eliminar_material_del_documento(documento_id, material_id):
 # ============================================================
 
 def obtener_documentos():
-    return supabase.table("documentos").select("*").order("nombre").execute().data or []
+    """
+    Obtiene los documentos desde Supabase y garantiza que la UI tenga
+    siempre un nombre visible, aunque el registro haya sido creado desde
+    otra PC con una ruta local diferente.
+    """
+    data = (
+        supabase.table("documentos")
+        .select("*")
+        .execute()
+        .data
+        or []
+    )
+
+    documentos = [
+        _normalizar_documento(documento)
+        for documento in data
+    ]
+
+    documentos.sort(
+        key=lambda documento: str(
+            documento.get("nombre") or ""
+        ).casefold()
+    )
+
+    return documentos
 
 
 def obtener_documento(ruta):
     data = supabase.table("documentos").select("*").eq("ruta", str(ruta)).limit(1).execute().data or []
-    return data[0] if data else None
+    return _normalizar_documento(data[0]) if data else None
 
 
 def obtener_documento_por_nombre_ruta(nombre, ruta):
     data = supabase.table("documentos").select("*").eq("nombre", nombre).eq("ruta", str(ruta)).limit(1).execute().data or []
-    return data[0] if data else None
+    return _normalizar_documento(data[0]) if data else None
 
 
 def crear_documento(nombre, ruta, fecha_modificacion_archivo=None):
     datos = {"nombre": nombre, "ruta": str(ruta)}
     if fecha_modificacion_archivo is not None: datos["fecha_modificacion_archivo"] = str(fecha_modificacion_archivo)
     data = supabase.table("documentos").insert(datos).execute().data or []
-    return data[0] if data else None
+    return _normalizar_documento(data[0]) if data else None
 
 
 def actualizar_documento(documento_id, fecha_modificacion_archivo):
     data = supabase.table("documentos").update({"fecha_modificacion_archivo": str(fecha_modificacion_archivo)}).eq("id", documento_id).execute().data or []
-    return data[0] if data else None
+    return _normalizar_documento(data[0]) if data else None
 
 
 # ============================================================
@@ -268,7 +330,7 @@ def actualizar_cantidad_documento_item(item_id, nueva_cantidad, usuario=None, ob
     diferencia = nueva_cantidad - stock_actual
     if abs(diferencia) < 0.000001: return stock_actual
     documento = supabase.table("documentos").select("*").eq("id", documento_id).limit(1).execute().data or []
-    documento = documento[0] if documento else None
+    documento = _normalizar_documento(documento[0]) if documento else None
     if not documento: raise Exception("No se encontró el documento seleccionado.")
     if not _actualizar_word_cantidad(documento, item, nueva_cantidad):
         raise Exception("No se pudo actualizar la cantidad en el archivo Word.")
