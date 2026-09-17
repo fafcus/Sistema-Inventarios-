@@ -108,13 +108,15 @@ def iniciar_sesion(email, password):
 
 def solicitar_acceso(nombre, email, rol_solicitado):
     """
-    Registra solamente una solicitud de acceso.
+    Registra una solicitud de acceso mediante una función RPC segura.
 
-    IMPORTANTE:
-    - No crea una cuenta de Supabase Auth.
-    - No solicita ni almacena contraseñas.
-    - La cuenta de autenticación se crea mediante una Edge Function
-      únicamente cuando un administrador aprueba la solicitud.
+    La pantalla de login es pública, por lo que no debe leer ni escribir
+    directamente las tablas protegidas por RLS. La validación y el INSERT
+    se realizan dentro de crear_solicitud_acceso(), que es SECURITY DEFINER.
+
+    No crea una cuenta de Supabase Auth ni solicita/almacena contraseñas.
+    La cuenta de autenticación se crea únicamente cuando un administrador
+    aprueba la solicitud mediante la Edge Function.
     """
     nombre = (nombre or "").strip()
     email = (email or "").strip().lower()
@@ -127,66 +129,52 @@ def solicitar_acceso(nombre, email, rol_solicitado):
     if rol_solicitado not in ROLES_SOLICITABLES:
         raise ValueError("El rol solicitado no es válido.")
 
-    pendientes = (
-        supabase.table("solicitudes_usuarios")
-        .select("id")
-        .eq("email", email)
-        .eq("estado", "pendiente")
-        .limit(1)
-        .execute()
-        .data
-        or []
-    )
-
-    if pendientes:
-        raise ValueError(
-            "Ya existe una solicitud pendiente para ese email. "
-            "Esperá la autorización del administrador."
-        )
-
-    # Si existe un perfil activo, el email ya está siendo utilizado.
-    perfiles = (
-        supabase.table("usuarios")
-        .select("id, activo")
-        .eq("email", email)
-        .limit(1)
-        .execute()
-        .data
-        or []
-    )
-
-    if perfiles and perfiles[0].get("activo"):
-        raise ValueError("Ya existe un usuario activo con ese email.")
-
-    # Si quedó un perfil inactivo de una prueba anterior, no lo reutilizamos:
-    # la nueva cuenta de Auth se creará al aprobar y la Edge Function usará su ID.
-    # El administrador podrá limpiar ese registro si corresponde.
     try:
-        solicitud = (
-            supabase.table("solicitudes_usuarios")
-            .insert({
-                "nombre": nombre,
-                "email": email,
-                "rol_solicitado": rol_solicitado,
-                "estado": "pendiente",
-            })
-            .execute()
-            .data
-            or []
-        )
+        respuesta = supabase.rpc(
+            "crear_solicitud_acceso",
+            {
+                "p_nombre": nombre,
+                "p_email": email,
+                "p_rol": rol_solicitado,
+            },
+        ).execute()
+
+        solicitud = respuesta.data
+
     except Exception as error:
         texto = str(error).lower()
-        if "duplicate" in texto or "unique" in texto:
+
+        if "ya existe una solicitud pendiente" in texto:
             raise ValueError(
-                "Ya existe una solicitud registrada para ese email. "
-                "Esperá la revisión del administrador."
+                "Ya existe una solicitud pendiente para ese email. "
+                "Esperá la autorización del administrador."
             ) from error
-        raise
+
+        if "ya existe un usuario activo" in texto:
+            raise ValueError(
+                "Ya existe un usuario activo con ese email."
+            ) from error
+
+        if "crear_solicitud_acceso" in texto and "does not exist" in texto:
+            raise ValueError(
+                "Falta crear la función crear_solicitud_acceso en Supabase. "
+                "Ejecutá el SQL de configuración de solicitudes de acceso."
+            ) from error
+
+        raise ValueError(
+            f"No se pudo registrar la solicitud: {error}"
+        ) from error
 
     if not solicitud:
         raise ValueError("No se pudo registrar la solicitud de acceso.")
 
-    return solicitud[0]
+    # Supabase puede devolver una lista para funciones que retornan TABLE/row.
+    if isinstance(solicitud, list):
+        if not solicitud:
+            raise ValueError("No se pudo registrar la solicitud de acceso.")
+        return solicitud[0]
+
+    return solicitud
 
 
 def obtener_solicitudes_pendientes():
