@@ -113,6 +113,7 @@ Deno.serve(async (req) => {
 
     const email = String(solicitud.email).trim().toLowerCase();
     let authUserId: string | null = null;
+    let usuarioExistente = false;
 
     const { data: usersPage, error: usersError } = await adminClient.auth.admin.listUsers({
       page: 1,
@@ -123,19 +124,39 @@ Deno.serve(async (req) => {
       return respuesta({ error: usersError.message }, 500);
     }
 
-    const usuarioExistente = usersPage.users.find(
+    const usuarioEncontrado = usersPage.users.find(
       (user) => String(user.email || "").toLowerCase() === email,
     );
 
-    if (usuarioExistente) {
-      authUserId = usuarioExistente.id;
+    if (usuarioEncontrado) {
+      authUserId = usuarioEncontrado.id;
+      usuarioExistente = true;
     } else {
       const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email, {
         data: { nombre: solicitud.nombre },
       });
 
       if (inviteError || !inviteData.user) {
-        return respuesta({ error: inviteError?.message || "No se pudo crear la cuenta de autenticación." }, 500);
+        const mensaje = inviteError?.message || "No se pudo crear la cuenta de autenticación.";
+        const mensajeNormalizado = mensaje.toLowerCase();
+
+        // El límite de emails de Supabase no significa que la solicitud haya
+        // sido rechazada. La dejamos en "pendiente" para poder reintentar
+        // cuando el límite se restablezca.
+        if (
+          mensajeNormalizado.includes("email rate limit") ||
+          mensajeNormalizado.includes("rate limit exceeded") ||
+          mensajeNormalizado.includes("rate limit")
+        ) {
+          return respuesta({
+            ok: false,
+            codigo: "EMAIL_RATE_LIMIT",
+            pendiente: true,
+            error: "Supabase alcanzó temporalmente el límite de envío de emails. La solicitud sigue pendiente y no fue rechazada. Podés volver a autorizarla cuando el límite se restablezca.",
+          }, 429);
+        }
+
+        return respuesta({ error: mensaje }, 500);
       }
 
       authUserId = inviteData.user.id;
