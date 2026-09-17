@@ -1,6 +1,7 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import traceback
+from datetime import datetime
 
 from usuarios_db import iniciar_sesion, cerrar_sesion, tiene_permiso, obtener_nombre_usuario, obtener_rol_usuario, solicitar_acceso
 from permisos_documentos import tiene_permiso_documento
@@ -57,6 +58,302 @@ def mostrar_solicitud_acceso(parent):
     ttk.Button(botones, text="Cancelar", command=ventana.destroy).pack(side="right", padx=4)
     marco.columnconfigure(1, weight=1)
     entradas["nombre"].focus_set()
+
+
+def abrir_selector_relacion_transito(app):
+    """Selecciona materiales de todos los inventarios y genera una relación."""
+    materiales = app.obtener_materiales_cache() or []
+    materiales = [m for m in materiales if _numero_float(m.get("cantidad")) > 0]
+
+    if not materiales:
+        messagebox.showwarning(
+            "Relación de Tránsito",
+            "No hay materiales con stock disponible en el inventario general.",
+            parent=app.root,
+        )
+        return
+
+    ventana = tk.Toplevel(app.root)
+    ventana.title("Generar Relación de Tránsito")
+    ventana.geometry("1120x700")
+    ventana.minsize(900, 560)
+    ventana.transient(app.root)
+    ventana.grab_set()
+    ventana.configure(bg="#eef3f8")
+
+    cabecera = tk.Frame(ventana, bg="#12304a", height=72)
+    cabecera.pack(fill="x")
+    cabecera.pack_propagate(False)
+    tk.Label(
+        cabecera,
+        text="🚚 Selección de materiales para Relación de Tránsito",
+        bg="#12304a",
+        fg="white",
+        font=("Segoe UI", 17, "bold"),
+    ).pack(anchor="w", padx=20, pady=20)
+
+    marco = ttk.Frame(ventana, padding=14)
+    marco.pack(fill="both", expand=True)
+
+    filtros = ttk.Frame(marco)
+    filtros.pack(fill="x", pady=(0, 10))
+
+    ttk.Label(filtros, text="Buscar:", font=("Segoe UI", 10, "bold")).pack(side="left")
+    busqueda = tk.StringVar()
+    entrada_busqueda = ttk.Entry(filtros, textvariable=busqueda, width=38)
+    entrada_busqueda.pack(side="left", padx=(8, 18))
+
+    ttk.Label(filtros, text="Tipo:", font=("Segoe UI", 10, "bold")).pack(side="left")
+    tipo = tk.StringVar()
+    ttk.Entry(filtros, textvariable=tipo, width=18).pack(side="left", padx=(8, 18))
+
+    ttk.Label(filtros, text="Destino:", font=("Segoe UI", 10, "bold")).pack(side="left")
+    destino = tk.StringVar()
+    ttk.Entry(filtros, textvariable=destino, width=22).pack(side="left", padx=(8, 0))
+
+    marco_tabla = ttk.Frame(marco)
+    marco_tabla.pack(fill="both", expand=True)
+
+    columnas = ("codigo", "material", "stock", "llevar", "unidad", "ubicacion", "origen")
+    tabla = ttk.Treeview(marco_tabla, columns=columnas, show="headings", selectmode="browse")
+    encabezados = {
+        "codigo": "Código",
+        "material": "Material",
+        "stock": "Stock disponible",
+        "llevar": "Cantidad a llevar",
+        "unidad": "Unidad",
+        "ubicacion": "Ubicación",
+        "origen": "Archivo origen",
+    }
+    anchos = {"codigo": 120, "material": 300, "stock": 110, "llevar": 120, "unidad": 100, "ubicacion": 180, "origen": 190}
+    for columna in columnas:
+        tabla.heading(columna, text=encabezados[columna])
+        tabla.column(columna, width=anchos[columna], minwidth=70, anchor="w")
+
+    scroll = ttk.Scrollbar(marco_tabla, orient="vertical", command=tabla.yview)
+    tabla.configure(yscrollcommand=scroll.set)
+    tabla.pack(side="left", fill="both", expand=True)
+    scroll.pack(side="right", fill="y")
+
+    seleccionados = {}
+    visibles = []
+
+    def clave_material(material):
+        return material.get("id")
+
+    def cantidad_disponible(material):
+        return _numero_float(material.get("cantidad"))
+
+    def cantidad_formateada(valor):
+        numero = _numero_float(valor)
+        return f"{numero:g}"
+
+    def cargar_tabla(*_):
+        for item in tabla.get_children():
+            tabla.delete(item)
+        visibles.clear()
+        texto = busqueda.get().strip().lower()
+        for material in materiales:
+            combinado = " ".join(
+                str(material.get(campo) or "")
+                for campo in ("codigo", "material", "ubicacion", "archivo_origen", "categoria")
+            ).lower()
+            if texto and texto not in combinado:
+                continue
+            visibles.append(material)
+            mid = clave_material(material)
+            cantidad = seleccionados.get(mid, cantidad_disponible(material))
+            tabla.insert(
+                "",
+                "end",
+                iid=str(mid),
+                values=(
+                    material.get("codigo") or "",
+                    material.get("material") or "",
+                    cantidad_formateada(cantidad_disponible(material)),
+                    cantidad_formateada(cantidad),
+                    material.get("unidad") or "",
+                    material.get("ubicacion") or "",
+                    material.get("archivo_origen") or "-",
+                ),
+            )
+
+    def obtener_visible(mid):
+        for material in visibles:
+            if str(clave_material(material)) == str(mid):
+                return material
+        return None
+
+    def modificar_cantidad(event=None):
+        seleccion = tabla.selection()
+        if not seleccion:
+            return
+        material = obtener_visible(seleccion[0])
+        if not material:
+            return
+        disponible = cantidad_disponible(material)
+        actual = seleccionados.get(clave_material(material), disponible)
+        dialogo = tk.Toplevel(ventana)
+        dialogo.title("Cantidad a llevar")
+        dialogo.geometry("430x230")
+        dialogo.resizable(False, False)
+        dialogo.transient(ventana)
+        dialogo.grab_set()
+        marco_cantidad = ttk.Frame(dialogo, padding=20)
+        marco_cantidad.pack(fill="both", expand=True)
+        ttk.Label(marco_cantidad, text=material.get("material") or "Material", font=("Segoe UI", 11, "bold"), wraplength=380).pack(anchor="w")
+        ttk.Label(marco_cantidad, text=f"Stock disponible: {cantidad_formateada(disponible)} {material.get('unidad') or ''}").pack(anchor="w", pady=(8, 4))
+        entrada = ttk.Entry(marco_cantidad, width=22)
+        entrada.insert(0, cantidad_formateada(actual))
+        entrada.pack(anchor="w", pady=(4, 10))
+        entrada.focus_set()
+        entrada.select_range(0, "end")
+
+        def aceptar():
+            try:
+                cantidad = float(entrada.get().replace(",", "."))
+            except ValueError:
+                messagebox.showerror("Cantidad", "Ingresá una cantidad numérica válida.", parent=dialogo)
+                return
+            if cantidad <= 0:
+                messagebox.showwarning("Cantidad", "La cantidad debe ser mayor que cero.", parent=dialogo)
+                return
+            if cantidad > disponible:
+                messagebox.showwarning(
+                    "Stock insuficiente",
+                    f"No podés llevar {cantidad:g}. El stock disponible es {disponible:g}.",
+                    parent=dialogo,
+                )
+                return
+            seleccionados[clave_material(material)] = cantidad
+            dialogo.destroy()
+            cargar_tabla()
+            tabla.selection_set(str(clave_material(material)))
+            tabla.focus(str(clave_material(material)))
+
+        botones = ttk.Frame(marco_cantidad)
+        botones.pack(fill="x", pady=(6, 0))
+        ttk.Button(botones, text="Guardar cantidad", command=aceptar).pack(side="right", padx=(6, 0))
+        ttk.Button(botones, text="Cancelar", command=dialogo.destroy).pack(side="right")
+        dialogo.bind("<Return>", lambda _event: aceptar())
+
+    tabla.bind("<Double-1>", modificar_cantidad)
+
+    def seleccionar_material():
+        seleccion = tabla.selection()
+        if not seleccion:
+            messagebox.showwarning("Selección", "Seleccioná un material de la lista.", parent=ventana)
+            return
+        modificar_cantidad()
+
+    def quitar_material():
+        seleccion = tabla.selection()
+        if not seleccion:
+            return
+        mid = int(seleccion[0])
+        seleccionados.pop(mid, None)
+        cargar_tabla()
+
+    def generar():
+        if not seleccionados:
+            messagebox.showwarning("Relación de Tránsito", "Seleccioná al menos un material.", parent=ventana)
+            return
+        if not tipo.get().strip() or not destino.get().strip():
+            messagebox.showwarning("Datos incompletos", "Completá Tipo y Destino antes de generar.", parent=ventana)
+            return
+
+        transporte_var = tk.StringVar()
+        transporte_dialogo = tk.Toplevel(ventana)
+        transporte_dialogo.title("Transporte")
+        transporte_dialogo.geometry("430x190")
+        transporte_dialogo.resizable(False, False)
+        transporte_dialogo.transient(ventana)
+        transporte_dialogo.grab_set()
+        marco_transporte = ttk.Frame(transporte_dialogo, padding=20)
+        marco_transporte.pack(fill="both", expand=True)
+        ttk.Label(marco_transporte, text="Transporte", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        entrada_transporte = ttk.Entry(marco_transporte, textvariable=transporte_var, width=42)
+        entrada_transporte.pack(fill="x", pady=(6, 14))
+        entrada_transporte.focus_set()
+
+        def confirmar_generacion():
+            transporte = transporte_var.get().strip()
+            if not transporte:
+                messagebox.showwarning("Transporte", "Completá el transporte.", parent=transporte_dialogo)
+                return
+            transporte_dialogo.destroy()
+
+            materiales_relacion = []
+            for material in materiales:
+                mid = clave_material(material)
+                if mid not in seleccionados:
+                    continue
+                copia = dict(material)
+                copia["cantidad"] = seleccionados[mid]
+                materiales_relacion.append(copia)
+
+            nombre_archivo = f"RELACION DE TRANSITO_{datetime.now():%Y%m%d_%H%M%S}.xlsx"
+            salida = filedialog.asksaveasfilename(
+                parent=ventana,
+                title="Guardar Relación de Tránsito",
+                defaultextension=".xlsx",
+                initialfile=nombre_archivo,
+                filetypes=[("Excel", "*.xlsx")],
+            )
+            if not salida:
+                return
+
+            try:
+                app.generar_relacion_transito(
+                    materiales=materiales_relacion,
+                    salida=salida,
+                    tipo_movimiento=tipo.get().strip(),
+                    destino=destino.get().strip(),
+                    transporte=transporte,
+                )
+                messagebox.showinfo(
+                    "Relación de Tránsito",
+                    f"La relación se generó correctamente con {len(materiales_relacion)} material(es).\n\nArchivo:\n{salida}",
+                    parent=ventana,
+                )
+                ventana.destroy()
+            except app.RelacionTransitoError as error:
+                traceback.print_exc()
+                messagebox.showerror("Relación de Tránsito", f"No se pudo generar la relación:\n\n{error}", parent=ventana)
+            except Exception as error:
+                traceback.print_exc()
+                messagebox.showerror("Relación de Tránsito", f"Ocurrió un error inesperado:\n\n{error}", parent=ventana)
+
+        botones_transporte = ttk.Frame(marco_transporte)
+        botones_transporte.pack(fill="x")
+        ttk.Button(botones_transporte, text="Generar relación", command=confirmar_generacion).pack(side="right", padx=(6, 0))
+        ttk.Button(botones_transporte, text="Cancelar", command=transporte_dialogo.destroy).pack(side="right")
+        transporte_dialogo.bind("<Return>", lambda _event: confirmar_generacion())
+
+    botones = ttk.Frame(marco)
+    botones.pack(fill="x", pady=(10, 0))
+    ttk.Button(botones, text="✏️ Modificar cantidad", command=seleccionar_material).pack(side="left", padx=(0, 8))
+    ttk.Button(botones, text="❌ Quitar selección", command=quitar_material).pack(side="left")
+    ttk.Button(botones, text="Generar Relación de Tránsito", command=generar).pack(side="right")
+    ttk.Button(botones, text="Cerrar", command=ventana.destroy).pack(side="right", padx=(0, 8))
+
+    ttk.Label(
+        marco,
+        text="Seleccioná un material y modificá su cantidad con doble clic o con el botón. Podés seleccionar materiales de distintos archivos. La relación se genera al finalizar.",
+        foreground="#506575",
+        wraplength=1000,
+    ).pack(fill="x", pady=(8, 0))
+
+    busqueda.trace_add("write", cargar_tabla)
+    cargar_tabla()
+    ventana.bind("<Escape>", lambda _event: ventana.destroy())
+
+
+def _numero_float(valor):
+    try:
+        return float(valor or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def agregar_boton_administracion(app, nombre_admin):
@@ -172,6 +469,10 @@ def ejecutar_aplicacion(datos_usuario):
         supabase_db.USUARIO_ACTUAL = nombre
     except Exception:
         pass
+
+    # La relación de tránsito ya no depende del material seleccionado en la
+    # pantalla principal: se abre su propio selector con todo el inventario.
+    app.generar_relacion_transito_ui = lambda: abrir_selector_relacion_transito(app)
 
     if rol == "administrador":
         funcion_cabecera_original = app.crear_cabecera
