@@ -333,8 +333,9 @@ def generar_relacion_transito(
     fecha: datetime | str | None = None,
     plantilla: str | Path | None = None,
     usuario: str | None = None,
+    generar_pdf: bool = True,
 ) -> Path:
-    """Genera Excel/PDF y descuenta el stock retirado con trazabilidad."""
+    """Genera la Relación de Tránsito en Excel y, opcionalmente, en PDF."""
     materiales = list(materiales or [])
 
     # main.py entrega actualmente un material global sin cantidad/origen.
@@ -420,10 +421,8 @@ def generar_relacion_transito(
             detalles.append(f"Ubicación: {ubicacion}")
         if origen:
             detalles.append(f"Origen: {origen}")
-        observaciones_fuente = material.get("_observaciones_fuente") or []
-        if observaciones_fuente:
-            detalles.append("Obs.: " + " / ".join(observaciones_fuente))
-        observaciones = " | ".join(detalles)
+        # No se incluyen observaciones de origen en la Relación de Tránsito.
+        observaciones = ""
 
         valores = {
             1: indice,
@@ -454,10 +453,11 @@ def generar_relacion_transito(
         raise RelacionTransitoError(f"No se pudo guardar la Relación de Tránsito: {error}") from error
 
     pdf_salida = salida.with_suffix(".pdf")
-    try:
-        convertir_excel_a_pdf(salida, pdf_salida)
-    except RelacionTransitoPDFError as error:
-        raise RelacionTransitoError(str(error)) from error
+    if generar_pdf:
+        try:
+            convertir_excel_a_pdf(salida, pdf_salida)
+        except RelacionTransitoPDFError as error:
+            raise RelacionTransitoError(str(error)) from error
 
     try:
         resultado_stock = descontar_materiales_relacion(
@@ -471,7 +471,7 @@ def generar_relacion_transito(
             f"{error}"
         ) from error
 
-    generar_relacion_transito.ultimo_pdf = pdf_salida
+    generar_relacion_transito.ultimo_pdf = pdf_salida if generar_pdf else None
     generar_relacion_transito.ultimo_resultado_stock = resultado_stock
     return salida
 
