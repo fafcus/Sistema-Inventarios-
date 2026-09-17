@@ -1,0 +1,63 @@
+name: Integrar Relacion de Transito
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  integrar:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Integrar funcionalidad
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("main.py")
+          text = path.read_text(encoding="utf-8")
+
+          import_anchor = "import importar_word\n"
+          import_line = "from relacion_transito import RelacionTransitoError, generar_relacion_transito\n"
+          if import_line not in text:
+              if import_anchor not in text:
+                  raise SystemExit("No se encontró el ancla de imports de main.py")
+              text = text.replace(import_anchor, import_anchor + import_line, 1)
+
+          function_anchor = "# ============================================================\n# CONSTRUIR PANTALLA DEL INVENTARIO\n# ============================================================\n\ndef construir_pantalla_inventario():"
+
+          function_code = '''# ============================================================\n# RELACIÓN DE TRÁNSITO\n# ============================================================\n\ndef generar_relacion_transito_ui():\n\n    material = obtener_material_seleccionado()\n\n    if not material:\n        return\n\n    tipo_movimiento = simpledialog.askstring(\n        "Relación de Tránsito",\n        "Tipo de movimiento:",\n        parent=root,\n    )\n\n    if tipo_movimiento is None:\n        return\n\n    destino = simpledialog.askstring(\n        "Relación de Tránsito",\n        "Destino:",\n        parent=root,\n    )\n\n    if destino is None:\n        return\n\n    transporte = simpledialog.askstring(\n        "Relación de Tránsito",\n        "Transporte:",\n        parent=root,\n    )\n\n    if transporte is None:\n        return\n\n    nombre = limpiar_texto(material.get("material")) or "material"\n    nombre_archivo = f"RELACION DE TRANSITO_{datetime.now():%Y%m%d_%H%M%S}.xlsx"\n\n    salida = filedialog.asksaveasfilename(\n        parent=root,\n        title="Guardar Relación de Tránsito",\n        defaultextension=".xlsx",\n        initialfile=nombre_archivo,\n        filetypes=[("Excel", "*.xlsx")],\n    )\n\n    if not salida:\n        return\n\n    try:\n        generar_relacion_transito(\n            materiales=[material],\n            salida=salida,\n            tipo_movimiento=tipo_movimiento,\n            destino=destino,\n            transporte=transporte,\n        )\n\n        messagebox.showinfo(\n            "Relación de Tránsito",\n            f"La relación de tránsito de \\\"{nombre}\\\" se generó correctamente.\\n\\n"\n            f"Archivo:\\n{salida}",\n            parent=root,\n        )\n\n    except RelacionTransitoError as error:\n        traceback.print_exc()\n        messagebox.showerror(\n            "Relación de Tránsito",\n            f"No se pudo generar la relación de tránsito:\\n\\n{error}",\n            parent=root,\n        )\n\n    except Exception as error:\n        traceback.print_exc()\n        messagebox.showerror(\n            "Relación de Tránsito",\n            f"Ocurrió un error inesperado al generar la relación:\\n\\n{error}",\n            parent=root,\n        )\n\n\n'''
+
+          if "def generar_relacion_transito_ui():" not in text:
+              if function_anchor not in text:
+                  raise SystemExit("No se encontró el ancla de construcción de pantalla")
+              text = text.replace(function_anchor, function_code + function_anchor, 1)
+
+          button_old = '''        ("📊 Reportes", abrir_reportes),\n        (\n            "🔄 Actualizar",'''
+          button_new = '''        ("📊 Reportes", abrir_reportes),\n        ("📋 Relación de Tránsito", generar_relacion_transito_ui),\n        (\n            "🔄 Actualizar",'''
+
+          if "(" + '"📋 Relación de Tránsito", generar_relacion_transito_ui' not in text:
+              if button_old not in text:
+                  raise SystemExit("No se encontró el bloque de botones de inventario")
+              text = text.replace(button_old, button_new, 1)
+
+          path.write_text(text, encoding="utf-8")
+
+      - name: Validar sintaxis
+        run: python -m py_compile main.py relacion_transito.py
+
+      - name: Guardar cambios y limpiar workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/workflows/integrar_relacion_transito.yml
+          git add main.py relacion_transito.py .github/workflows/integrar_relacion_transito.yml
+          git commit -m "Integrar generacion de Relacion de Transito" || exit 0
+          git push
