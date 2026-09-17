@@ -214,11 +214,95 @@ def _crear_materiales_en_bloque(materiales):
     return resultado
 
 
+def _obtener_materiales_con_ajustes(documento_id):
+    """Devuelve los material_id que tienen historial de ajustes en el documento."""
+    ajustes = (
+        supabase.table("ajustes_stock")
+        .select("material_id")
+        .eq("documento_id", documento_id)
+        .execute()
+        .data
+        or []
+    )
+    return {a.get("material_id") for a in ajustes if a.get("material_id") is not None}
+
+
 def _reemplazar_items_documento(documento_id, items):
-    supabase.table("documento_items").delete().eq("documento_id", documento_id).execute()
-    if not items:
-        return
-    _upsert_filas("documento_items", items, lote=200)
+    """
+    Sincroniza los items de un Word sin destruir historial.
+
+    IMPORTANTE:
+    - Nunca borra todos los documento_items a ciegas.
+    - Conserva el id del documento_item existente.
+    - Conserva los ajustes_stock asociados al documento/material.
+    - Los items eliminados del Word solo se borran si no tienen historial.
+    - Si un item eliminado tiene historial, se conserva para no perder trazabilidad.
+    """
+    existentes = (
+        supabase.table("documento_items")
+        .select("*")
+        .eq("documento_id", documento_id)
+        .execute()
+        .data
+        or []
+    )
+
+    por_material = {}
+    for existente in existentes:
+        material_id = existente.get("material_id")
+        if material_id is not None:
+            por_material[material_id] = existente
+
+    materiales_con_historial = _obtener_materiales_con_ajustes(documento_id)
+    presentes = set()
+    insertados = 0
+    actualizados = 0
+    eliminados = 0
+    preservados_con_historial = []
+
+    for item in items:
+        material_id = item.get("material_id")
+        if material_id is None:
+            continue
+
+        presentes.add(material_id)
+        existente = por_material.get(material_id)
+
+        if existente:
+            payload = dict(item)
+            payload.pop("id", None)
+            respuesta = (
+                supabase.table("documento_items")
+                .update(payload)
+                .eq("id", existente["id"])
+                .execute()
+            )
+            if respuesta.data is not None:
+                actualizados += 1
+        else:
+            supabase.table("documento_items").insert(item).execute()
+            insertados += 1
+
+    for material_id, existente in por_material.items():
+        if material_id in presentes:
+            continue
+
+        if material_id in materiales_con_historial:
+            preservados_con_historial.append({
+                "material_id": material_id,
+                "documento_item_id": existente.get("id"),
+            })
+            continue
+
+        supabase.table("documento_items").delete().eq("id", existente["id"]).execute()
+        eliminados += 1
+
+    return {
+        "insertados": insertados,
+        "actualizados": actualizados,
+        "eliminados": eliminados,
+        "preservados_con_historial": preservados_con_historial,
+    }
 
 
 # ============================================================
@@ -234,6 +318,7 @@ def importar_todos(reescaneo_completo=False):
         "actualizados": 0,
         "items": 0,
         "errores": [],
+        "advertencias": [],
         "vacios": 0,
     }
 
@@ -375,7 +460,7 @@ def importar_todos(reescaneo_completo=False):
             traceback.print_exc()
 
     # --------------------------------------------------------
-    # 6. Reemplazar items por documento: pocas consultas
+    # 6. Sincronizar items por documento sin destruir historial
     # --------------------------------------------------------
     for ruta, documento, filas in trabajos:
         try:
@@ -403,7 +488,13 @@ def importar_todos(reescaneo_completo=False):
                     "observaciones": fila.get("observaciones"),
                 })
 
-            _reemplazar_items_documento(documento_id, items)
+            sincronizacion = _reemplazar_items_documento(documento_id, items)
+            if sincronizacion.get("preservados_con_historial"):
+                cantidad_preservados = len(sincronizacion["preservados_con_historial"])
+                resultado["advertencias"].append(
+                    f"{ruta.name}: se conservaron {cantidad_preservados} item(s) que ya no aparecen en el Word porque tienen historial de movimientos/ajustes."
+                )
+
             resultado["procesados"] += 1
             resultado["items"] += len(items)
             if not items:
