@@ -23,11 +23,25 @@ Deno.serve(async (req) => {
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const publishableKey = Deno.env.get("SUPABASE_ANON_KEY");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const publishableKeysRaw = Deno.env.get("SUPABASE_PUBLISHABLE_KEYS");
+  const secretKeysRaw = Deno.env.get("SUPABASE_SECRET_KEYS");
 
-  if (!supabaseUrl || !publishableKey || !serviceRoleKey) {
-    return respuesta({ error: "Faltan variables de entorno de Supabase." }, 500);
+  if (!supabaseUrl || !publishableKeysRaw || !secretKeysRaw) {
+    return respuesta({ error: "Faltan las claves de Supabase en el entorno de la Edge Function." }, 500);
+  }
+
+  let publishableKey: string;
+  let secretKey: string;
+
+  try {
+    publishableKey = JSON.parse(publishableKeysRaw)["default"];
+    secretKey = JSON.parse(secretKeysRaw)["default"];
+  } catch {
+    return respuesta({ error: "No se pudieron interpretar las claves de Supabase." }, 500);
+  }
+
+  if (!publishableKey || !secretKey) {
+    return respuesta({ error: "No existe una clave 'default' de Supabase." }, 500);
   }
 
   const authorization = req.headers.get("Authorization") || "";
@@ -41,7 +55,7 @@ Deno.serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const adminClient = createClient(supabaseUrl, serviceRoleKey, {
+  const adminClient = createClient(supabaseUrl, secretKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
@@ -98,9 +112,6 @@ Deno.serve(async (req) => {
     }
 
     const email = String(solicitud.email).trim().toLowerCase();
-
-    // Si existe una cuenta de Auth previa, no intentamos crear otra.
-    // En ese caso usamos esa cuenta para completar/activar el perfil.
     let authUserId: string | null = null;
 
     const { data: usersPage, error: usersError } = await adminClient.auth.admin.listUsers({
@@ -124,9 +135,7 @@ Deno.serve(async (req) => {
       });
 
       if (inviteError || !inviteData.user) {
-        return respuesta({
-          error: inviteError?.message || "No se pudo crear la cuenta de autenticación.",
-        }, 500);
+        return respuesta({ error: inviteError?.message || "No se pudo crear la cuenta de autenticación." }, 500);
       }
 
       authUserId = inviteData.user.id;
@@ -143,8 +152,6 @@ Deno.serve(async (req) => {
       }, { onConflict: "id" });
 
     if (perfilError2) {
-      // Intentamos eliminar únicamente una cuenta recién creada si el perfil
-      // no pudo registrarse, evitando dejar usuarios huérfanos.
       if (!usuarioExistente && authUserId) {
         await adminClient.auth.admin.deleteUser(authUserId);
       }
@@ -181,8 +188,6 @@ Deno.serve(async (req) => {
         : "Usuario creado y correo de invitación enviado.",
     });
   } catch (error) {
-    return respuesta({
-      error: error instanceof Error ? error.message : String(error),
-    }, 500);
+    return respuesta({ error: error instanceof Error ? error.message : String(error) }, 500);
   }
 });
