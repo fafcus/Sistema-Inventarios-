@@ -45,8 +45,6 @@ PERMISOS = {
         "importar_word",
         "reescaneo_completo",
     },
-    # Consulta puede modificar cantidades de stock, pero no administrar
-    # materiales, importar Word ni administrar usuarios.
     "consulta": {
         "ver_inventario",
         "ver_historial",
@@ -112,9 +110,12 @@ def solicitar_acceso(nombre, email, password, password_confirmacion, rol_solicit
     """
     Registra una solicitud de acceso.
 
-    La contraseña NO se guarda en solicitudes_usuarios. Se crea mediante
-    Supabase Auth y queda administrada por el sistema de autenticación.
-    El perfil se crea inicialmente inactivo y el administrador debe aprobarlo.
+    La contraseña nunca se guarda en la tabla solicitudes_usuarios.
+    Supabase Auth se encarga de almacenarla de forma segura.
+
+    La función también tolera un intento anterior que haya llegado a crear
+    la cuenta/perfil pero haya fallado antes de insertar la solicitud.
+    Esto evita los errores de "duplicate key" al volver a enviar el formulario.
     """
     nombre = (nombre or "").strip()
     email = (email or "").strip().lower()
@@ -133,21 +134,7 @@ def solicitar_acceso(nombre, email, password, password_confirmacion, rol_solicit
     if password != password_confirmacion:
         raise ValueError("Las contraseñas no coinciden.")
 
-    existentes = (
-        supabase.table("usuarios")
-        .select("id, activo")
-        .eq("email", email)
-        .limit(1)
-        .execute()
-        .data
-        or []
-    )
-
-    if existentes:
-        if existentes[0].get("activo"):
-            raise ValueError("Ya existe un usuario activo con ese email.")
-        raise ValueError("Ya existe una cuenta o solicitud asociada a ese email. Esperá la revisión del administrador.")
-
+    # Primero comprobamos si ya hay una solicitud pendiente.
     pendientes = (
         supabase.table("solicitudes_usuarios")
         .select("id, estado")
@@ -160,40 +147,101 @@ def solicitar_acceso(nombre, email, password, password_confirmacion, rol_solicit
     )
 
     if pendientes:
-        raise ValueError("Ya existe una solicitud pendiente para ese email.")
+        raise ValueError(
+            "Ya existe una solicitud pendiente para ese email. "
+            "Esperá la autorización del administrador."
+        )
 
-    respuesta = supabase.auth.sign_up({
-        "email": email,
-        "password": password,
-        "options": {
-            "data": {
-                "nombre": nombre,
-            }
-        },
-    })
+    # Comprobamos el perfil. Si quedó creado por un intento anterior pero
+    # está inactivo, lo reutilizamos en lugar de intentar insertarlo otra vez.
+    perfiles_existentes = (
+        supabase.table("usuarios")
+        .select("id, nombre, email, rol, activo")
+        .eq("email", email)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
 
-    usuario_auth = getattr(respuesta, "user", None)
+    perfil_existente = perfiles_existentes[0] if perfiles_existentes else None
 
-    if usuario_auth is None:
-        raise ValueError("Supabase no pudo crear la cuenta de autenticación.")
+    if perfil_existente and perfil_existente.get("activo"):
+        raise ValueError("Ya existe un usuario activo con ese email.")
+
+    usuario_auth = None
+
+    if perfil_existente:
+        # El perfil inactivo indica que la cuenta de Auth probablemente ya fue
+        # creada durante un intento anterior. No llamamos sign_up nuevamente.
+        auth_id = perfil_existente.get("id")
+        if not auth_id:
+            raise ValueError("El perfil existente no tiene un identificador válido.")
+    else:
+        # No hay perfil: creamos la cuenta de Auth por primera vez.
+        try:
+            respuesta = supabase.auth.sign_up({
+                "email": email,
+                "password": password,
+                "options": {
+                    "data": {
+                        "nombre": nombre,
+                    }
+                },
+            })
+        except Exception as error:
+            texto = str(error).lower()
+            if "already registered" in texto or "already exists" in texto or "duplicate" in texto:
+                raise ValueError(
+                    "Ya existe una cuenta de autenticación con ese email. "
+                    "Si todavía no fue autorizada, un administrador debe revisar la solicitud."
+                ) from error
+            raise
+
+        usuario_auth = getattr(respuesta, "user", None)
+
+        if usuario_auth is None:
+            raise ValueError("Supabase no pudo crear la cuenta de autenticación.")
+
+        auth_id = usuario_auth.id
+
+        # En algunas configuraciones Supabase puede devolver un usuario ya
+        # registrado sin lanzar una excepción. Si no hay identidades nuevas,
+        # no intentamos duplicar el perfil.
+        identidades = getattr(usuario_auth, "identities", None)
+        if identidades == []:
+            raise ValueError(
+                "Ya existe una cuenta de autenticación con ese email. "
+                "Esperá la revisión del administrador."
+            )
 
     try:
-        perfil = (
-            supabase.table("usuarios")
-            .insert({
-                "id": usuario_auth.id,
+        if not perfil_existente:
+            perfil = (
+                supabase.table("usuarios")
+                .insert({
+                    "id": auth_id,
+                    "nombre": nombre,
+                    "email": email,
+                    "rol": rol_solicitado,
+                    "activo": False,
+                })
+                .execute()
+                .data
+                or []
+            )
+
+            if not perfil:
+                raise ValueError("No se pudo crear el perfil pendiente.")
+        else:
+            # Actualizamos nombre/rol por si el intento anterior quedó a medio
+            # completar. Nunca activamos el usuario desde esta pantalla.
+            supabase.table("usuarios").update({
                 "nombre": nombre,
                 "email": email,
                 "rol": rol_solicitado,
                 "activo": False,
-            })
-            .execute()
-            .data
-            or []
-        )
-
-        if not perfil:
-            raise ValueError("No se pudo crear el perfil pendiente.")
+            }).eq("id", auth_id).execute()
 
         solicitud = (
             supabase.table("solicitudes_usuarios")
@@ -211,10 +259,15 @@ def solicitar_acceso(nombre, email, password, password_confirmacion, rol_solicit
         if not solicitud:
             raise ValueError("No se pudo registrar la solicitud de acceso.")
 
-    except Exception:
-        # El usuario de Auth no se elimina desde el cliente porque esa
-        # operación requiere privilegios administrativos. El perfil queda
-        # inactivo y el administrador puede revisar la cuenta si fuese necesario.
+    except Exception as error:
+        texto = str(error).lower()
+
+        if "duplicate key" in texto or "duplicate" in texto:
+            raise ValueError(
+                "La cuenta o solicitud ya estaba registrada. "
+                "Revisá el panel de administración antes de volver a enviarla."
+            ) from error
+
         raise
     finally:
         try:
