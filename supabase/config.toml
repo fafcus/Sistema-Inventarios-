@@ -1,0 +1,2 @@
+[functions.autorizar_usuario]
+verify_jwt = true
