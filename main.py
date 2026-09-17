@@ -5,8 +5,22 @@ _SOURCE = Path(__file__).with_name("main_original.py")
 _source = _SOURCE.read_text(encoding="utf-8")
 
 _new_func = '''def generar_relacion_transito_ui():
+    """Abre el selector general y genera la Relación de Tránsito."""
+    from relacion_transito_selector import seleccionar_materiales_general
 
-    """Abre directamente el selector general de materiales."""
+    try:
+        materiales = seleccionar_materiales_general(root)
+    except Exception as error:
+        traceback.print_exc()
+        messagebox.showerror(
+            "Relación de Tránsito",
+            f"No se pudo abrir el selector general:\\n\\n{error}",
+            parent=root,
+        )
+        return
+
+    if not materiales:
+        return
 
     tipo_movimiento = simpledialog.askstring(
         "Relación de Tránsito",
@@ -45,7 +59,7 @@ _new_func = '''def generar_relacion_transito_ui():
 
     try:
         generar_relacion_transito(
-            materiales=[{}],
+            materiales=materiales,
             salida=salida,
             tipo_movimiento=tipo_movimiento,
             destino=destino,
@@ -78,8 +92,6 @@ _new_func = '''def generar_relacion_transito_ui():
 '''
 
 _pattern = r'def generar_relacion_transito_ui\(\):.*?(?=\n# ={10,}\n)'
-# Usar una función como reemplazo evita que re.sub interprete los \n del texto
-# como saltos de línea reales dentro de los f-strings.
 _source, _count = re.subn(
     _pattern,
     lambda _match: _new_func.rstrip(),
