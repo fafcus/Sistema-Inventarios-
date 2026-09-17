@@ -2,154 +2,67 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import traceback
 
-from usuarios_db import (
-    iniciar_sesion,
-    cerrar_sesion,
-    tiene_permiso,
-    obtener_nombre_usuario,
-    obtener_rol_usuario,
-    solicitar_acceso,
-)
+from usuarios_db import iniciar_sesion, cerrar_sesion, tiene_permiso, obtener_nombre_usuario, obtener_rol_usuario, solicitar_acceso
 
 
 def mostrar_solicitud_acceso(parent):
     ventana = tk.Toplevel(parent)
     ventana.title("Solicitar acceso")
-    ventana.geometry("500x540")
+    ventana.geometry("500x430")
     ventana.resizable(False, False)
     ventana.transient(parent)
     ventana.grab_set()
-
     ventana.configure(bg="#eef3f8")
-
     cabecera = tk.Frame(ventana, bg="#12304a", height=70)
     cabecera.pack(fill="x")
     cabecera.pack_propagate(False)
-
-    tk.Label(
-        cabecera,
-        text="👤 Solicitar acceso",
-        bg="#12304a",
-        fg="white",
-        font=("Segoe UI", 17, "bold"),
-    ).pack(anchor="w", padx=20, pady=20)
+    tk.Label(cabecera, text="👤 Solicitar acceso", bg="#12304a", fg="white", font=("Segoe UI", 17, "bold")).pack(anchor="w", padx=20, pady=20)
 
     marco = ttk.Frame(ventana, padding=25)
     marco.pack(fill="both", expand=True)
-
     entradas = {}
-
-    campos = [
-        ("Nombre y apellido", "nombre", False),
-        ("Email", "email", False),
-        ("Contraseña", "password", True),
-        ("Repetir contraseña", "password2", True),
-    ]
-
-    for fila, (texto, clave, secreto) in enumerate(campos):
-        ttk.Label(
-            marco,
-            text=texto,
-            font=("Segoe UI", 10, "bold"),
-        ).grid(row=fila, column=0, sticky="w", pady=(5, 3))
-
-        entrada = ttk.Entry(marco, width=45, show="*" if secreto else "")
+    for fila, (texto, clave) in enumerate((("Nombre y apellido", "nombre"), ("Email", "email"))):
+        ttk.Label(marco, text=texto, font=("Segoe UI", 10, "bold")).grid(row=fila, column=0, sticky="w", pady=(5, 3))
+        entrada = ttk.Entry(marco, width=45)
         entrada.grid(row=fila, column=1, sticky="ew", pady=(5, 8), padx=(12, 0))
         entradas[clave] = entrada
 
-    ttk.Label(
-        marco,
-        text="Rol solicitado",
-        font=("Segoe UI", 10, "bold"),
-    ).grid(row=4, column=0, sticky="w", pady=(5, 3))
-
+    ttk.Label(marco, text="Rol solicitado", font=("Segoe UI", 10, "bold")).grid(row=2, column=0, sticky="w", pady=(5, 3))
     rol_var = tk.StringVar(value="consulta")
-    combo_rol = ttk.Combobox(
-        marco,
-        textvariable=rol_var,
-        values=("consulta", "encargado"),
-        state="readonly",
-        width=42,
-    )
-    combo_rol.grid(row=4, column=1, sticky="ew", pady=(5, 8), padx=(12, 0))
-
-    ttk.Label(
-        marco,
-        text=(
-            "La solicitud quedará pendiente hasta que un administrador "
-            "autorice el acceso.\n\n"
-            "El rol administrador no puede solicitarse desde esta pantalla."
-        ),
-        foreground="#506575",
-        wraplength=430,
-    ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(12, 12))
-
+    ttk.Combobox(marco, textvariable=rol_var, values=("consulta", "encargado"), state="readonly", width=42).grid(row=2, column=1, sticky="ew", pady=(5, 8), padx=(12, 0))
+    ttk.Label(marco, text=("La solicitud quedará pendiente hasta que un administrador autorice el acceso.\n\n"
+                           "No se solicita una contraseña en esta etapa. Si se aprueba, recibirás un correo para configurar tu contraseña.\n\n"
+                           "El rol administrador no puede solicitarse desde esta pantalla."), foreground="#506575", wraplength=430).grid(row=3, column=0, columnspan=2, sticky="w", pady=(12, 12))
     estado = ttk.Label(marco, text="", foreground="#506575", wraplength=430)
-    estado.grid(row=6, column=0, columnspan=2, sticky="w", pady=(0, 10))
+    estado.grid(row=4, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
     def enviar():
         boton.config(state="disabled")
         estado.config(text="Registrando solicitud...")
         ventana.update_idletasks()
-
         try:
-            solicitud = solicitar_acceso(
-                entradas["nombre"].get(),
-                entradas["email"].get(),
-                entradas["password"].get(),
-                entradas["password2"].get(),
-                rol_var.get(),
-            )
-
-            messagebox.showinfo(
-                "Solicitud enviada",
-                "La solicitud fue enviada correctamente.\n\n"
-                "Un administrador debe autorizar tu acceso antes de que puedas entrar al sistema.",
-                parent=ventana,
-            )
+            solicitar_acceso(entradas["nombre"].get(), entradas["email"].get(), rol_var.get())
+            messagebox.showinfo("Solicitud enviada", "La solicitud fue enviada correctamente.\n\nUn administrador debe autorizar tu acceso. Cuando sea aprobada, recibirás un correo para configurar tu contraseña.", parent=ventana)
             ventana.destroy()
-
         except Exception as error:
             boton.config(state="normal")
             estado.config(text="No se pudo registrar la solicitud.")
-            messagebox.showerror(
-                "Solicitud rechazada",
-                str(error),
-                parent=ventana,
-            )
+            messagebox.showerror("Solicitud rechazada", str(error), parent=ventana)
 
     botones = ttk.Frame(marco)
-    botones.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(12, 0))
-
-    boton = ttk.Button(
-        botones,
-        text="📨 Enviar solicitud",
-        command=enviar,
-    )
+    botones.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+    boton = ttk.Button(botones, text="📨 Enviar solicitud", command=enviar)
     boton.pack(side="right", padx=4)
-
-    ttk.Button(
-        botones,
-        text="Cancelar",
-        command=ventana.destroy,
-    ).pack(side="right", padx=4)
-
+    ttk.Button(botones, text="Cancelar", command=ventana.destroy).pack(side="right", padx=4)
     marco.columnconfigure(1, weight=1)
     entradas["nombre"].focus_set()
 
 
 def agregar_boton_administracion(app, nombre_admin):
-    """Agrega el acceso a administración sin modificar la interfaz principal."""
     try:
         cabecera = app.root.winfo_children()[0]
-
-        boton = ttk.Button(
-            cabecera,
-            text="👥 Usuarios",
-            command=lambda: abrir_admin_usuarios(app.root, nombre_admin),
-        )
+        boton = ttk.Button(cabecera, text="👥 Usuarios", command=lambda: abrir_admin_usuarios(app.root, nombre_admin))
         boton.pack(side="right", padx=(0, 12))
-
         return True
     except Exception:
         traceback.print_exc()
@@ -162,41 +75,23 @@ def abrir_admin_usuarios(parent, nombre_admin):
         return abrir(parent, nombre_admin)
     except Exception as error:
         traceback.print_exc()
-        messagebox.showerror(
-            "Administración de usuarios",
-            f"No se pudo abrir el panel de usuarios:\n\n{error}",
-            parent=parent,
-        )
+        messagebox.showerror("Administración de usuarios", f"No se pudo abrir el panel de usuarios:\n\n{error}", parent=parent)
 
 
 def ejecutar_aplicacion(datos_usuario):
     import main as app
-
     perfil = datos_usuario.get("perfil") or {}
     rol = obtener_rol_usuario(datos_usuario)
-    nombre = (
-        obtener_nombre_usuario(datos_usuario)
-        or perfil.get("email")
-        or "Usuario"
-    )
-
+    nombre = obtener_nombre_usuario(datos_usuario) or perfil.get("email") or "Usuario"
     app.USUARIO_ACTUAL = datos_usuario
     app.USUARIO_NOMBRE = nombre
     app.USUARIO_ROL = rol
 
     def proteger(nombre_permiso, funcion):
-        """Protege una acción existente sin modificar la interfaz actual."""
         def wrapper(*args, **kwargs):
             if tiene_permiso(rol, nombre_permiso):
                 return funcion(*args, **kwargs)
-
-            messagebox.showwarning(
-                "Permiso denegado",
-                "Tu usuario no tiene permiso para realizar esta acción.\n\n"
-                f"Rol actual: {rol}",
-                parent=getattr(app, "root", None),
-            )
-
+            messagebox.showwarning("Permiso denegado", "Tu usuario no tiene permiso para realizar esta acción.\n\n" f"Rol actual: {rol}", parent=getattr(app, "root", None))
         wrapper.__name__ = getattr(funcion, "__name__", "accion")
         return wrapper
 
@@ -209,22 +104,14 @@ def ejecutar_aplicacion(datos_usuario):
     app.importar_word_manual = proteger("importar_word", app.importar_word_manual)
     app.reescaneo_completo = proteger("reescaneo_completo", app.reescaneo_completo)
 
-    # Los movimientos manuales reciben el nombre real del usuario logueado.
-    # main.py llama a esta función pasando "APP" como cuarto argumento
-    # posicional. Reemplazamos ese argumento de forma segura para evitar
-    # el error: "multiple values for argument 'usuario'".
     funcion_stock_original = app.actualizar_stock_documento
-
     def actualizar_stock_con_usuario(*args, **kwargs):
         args = list(args)
-
         if len(args) >= 4:
             args[3] = nombre
         else:
             kwargs["usuario"] = nombre
-
         return funcion_stock_original(*args, **kwargs)
-
     app.actualizar_stock_documento = actualizar_stock_con_usuario
 
     try:
@@ -235,24 +122,19 @@ def ejecutar_aplicacion(datos_usuario):
 
     if rol == "administrador":
         funcion_cabecera_original = app.crear_cabecera
-
         def crear_cabecera_con_usuarios():
             funcion_cabecera_original()
             agregar_boton_administracion(app, nombre)
-
         app.crear_cabecera = crear_cabecera_con_usuarios
 
     app.crear_interfaz()
-
     try:
         root = app.root
-
         def cerrar():
             try:
                 cerrar_sesion()
             finally:
                 root.destroy()
-
         root.protocol("WM_DELETE_WINDOW", cerrar)
     except Exception:
         pass
@@ -264,115 +146,54 @@ def mostrar_login():
     login.geometry("430x350")
     login.resizable(False, False)
     login.configure(bg="#eef3f8")
-
     estilo = ttk.Style(login)
-
     try:
         estilo.theme_use("clam")
     except Exception:
         pass
-
     estilo.configure("Login.TFrame", background="#eef3f8")
     estilo.configure("Login.TLabel", background="#eef3f8", foreground="#183247")
-    estilo.configure(
-        "Login.Title.TLabel",
-        background="#12304a",
-        foreground="white",
-        font=("Segoe UI", 17, "bold"),
-    )
-    estilo.configure(
-        "Login.TButton",
-        padding=(12, 8),
-        font=("Segoe UI", 10, "bold"),
-    )
-
+    estilo.configure("Login.Title.TLabel", background="#12304a", foreground="white", font=("Segoe UI", 17, "bold"))
+    estilo.configure("Login.TButton", padding=(12, 8), font=("Segoe UI", 10, "bold"))
     cabecera = tk.Frame(login, bg="#12304a", height=70)
     cabecera.pack(fill="x")
     cabecera.pack_propagate(False)
-
-    ttk.Label(
-        cabecera,
-        text="⚓ INVENTARIO MATERIAL NAVAL",
-        style="Login.Title.TLabel",
-    ).pack(anchor="w", padx=20, pady=20)
-
+    ttk.Label(cabecera, text="⚓ INVENTARIO MATERIAL NAVAL", style="Login.Title.TLabel").pack(anchor="w", padx=20, pady=20)
     marco = ttk.Frame(login, style="Login.TFrame", padding=25)
     marco.pack(fill="both", expand=True)
-
-    ttk.Label(
-        marco,
-        text="Email",
-        style="Login.TLabel",
-        font=("Segoe UI", 10, "bold"),
-    ).pack(anchor="w")
-
+    ttk.Label(marco, text="Email", style="Login.TLabel", font=("Segoe UI", 10, "bold")).pack(anchor="w")
     entrada_email = ttk.Entry(marco, width=42)
     entrada_email.pack(fill="x", pady=(5, 12))
-
-    ttk.Label(
-        marco,
-        text="Contraseña",
-        style="Login.TLabel",
-        font=("Segoe UI", 10, "bold"),
-    ).pack(anchor="w")
-
+    ttk.Label(marco, text="Contraseña", style="Login.TLabel", font=("Segoe UI", 10, "bold")).pack(anchor="w")
     entrada_password = ttk.Entry(marco, width=42, show="*")
     entrada_password.pack(fill="x", pady=(5, 12))
-
     estado = ttk.Label(marco, text="", style="Login.TLabel")
     estado.pack(anchor="w", pady=(0, 8))
 
     def entrar(event=None):
         email = entrada_email.get().strip()
         password = entrada_password.get()
-
         if not email or not password:
-            messagebox.showwarning(
-                "Acceso",
-                "Ingresá el email y la contraseña.",
-                parent=login,
-            )
+            messagebox.showwarning("Acceso", "Ingresá el email y la contraseña.", parent=login)
             return
-
         boton.config(state="disabled")
         estado.config(text="Conectando...")
         login.update_idletasks()
-
         try:
             datos = iniciar_sesion(email, password)
             login.destroy()
             ejecutar_aplicacion(datos)
-
         except Exception as error:
             boton.config(state="normal")
             estado.config(text="No se pudo iniciar sesión.")
-
-            messagebox.showerror(
-                "Acceso rechazado",
-                str(error),
-                parent=login,
-            )
-
+            messagebox.showerror("Acceso rechazado", str(error), parent=login)
             entrada_password.focus_set()
 
-    boton = ttk.Button(
-        marco,
-        text="🔐 Iniciar sesión",
-        command=entrar,
-        style="Login.TButton",
-    )
+    boton = ttk.Button(marco, text="🔐 Iniciar sesión", command=entrar, style="Login.TButton")
     boton.pack(fill="x", pady=(2, 7))
-
-    ttk.Button(
-        marco,
-        text="👤 Solicitar acceso",
-        command=lambda: mostrar_solicitud_acceso(login),
-        style="Login.TButton",
-    ).pack(fill="x")
-
+    ttk.Button(marco, text="👤 Solicitar acceso", command=lambda: mostrar_solicitud_acceso(login), style="Login.TButton").pack(fill="x")
     login.bind("<Return>", entrar)
     entrada_email.focus_set()
-
     login.protocol("WM_DELETE_WINDOW", login.destroy)
     login.mainloop()
 
