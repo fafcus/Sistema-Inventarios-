@@ -1,7 +1,8 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox, simpledialog, filedialog
 from pathlib import Path
 from copy import deepcopy
+from datetime import datetime
 import threading
 import time
 import traceback
@@ -18,6 +19,7 @@ from supabase_db import (
     obtener_items_documento,
     crear_item_documento,
     buscar_material,
+    eliminar_material_del_documento,
 )
 import importar_word
 
@@ -947,6 +949,147 @@ def _agregar_fila_word(documento, datos):
 
 
 # ============================================================
+# ELIMINAR FILA DEL WORD
+# ============================================================
+
+def _eliminar_fila_word(documento, material):
+
+    try:
+        from docx import Document
+
+    except Exception as error:
+
+        raise Exception(
+            "Falta instalar python-docx. "
+            "Ejecutá: pip install python-docx"
+        ) from error
+
+    ruta = Path(
+        str(documento.get("ruta") or "")
+    )
+
+    if not ruta.exists():
+
+        raise Exception(
+            f"No se encontró el archivo Word:\n{ruta}"
+        )
+
+    doc = Document(str(ruta))
+
+    codigo = limpiar_texto(
+        material.get("codigo")
+    )
+
+    nombre = limpiar_texto(
+        material.get("material")
+    )
+
+    fila_encontrada = False
+
+    for tabla_word in doc.tables:
+
+        if not tabla_word.rows:
+            continue
+
+        encabezados = [
+            limpiar_texto(c.text).lower()
+            for c in tabla_word.rows[0].cells
+        ]
+
+        indice_codigo = None
+        indice_material = None
+
+        for i, encabezado in enumerate(
+            encabezados
+        ):
+
+            if encabezado in (
+                "codigo",
+                "código",
+            ):
+
+                indice_codigo = i
+
+            elif encabezado == "material":
+
+                indice_material = i
+
+        if (
+            indice_codigo is None
+            and indice_material is None
+        ):
+            continue
+
+        if codigo and indice_codigo is not None:
+
+            for fila in list(
+                tabla_word.rows[1:]
+            ):
+
+                valores = [
+                    limpiar_texto(
+                        celda.text
+                    )
+                    for celda in fila.cells
+                ]
+
+                if (
+                    indice_codigo < len(valores)
+                    and valores[indice_codigo] == codigo
+                ):
+
+                    tr = fila._tr
+
+                    tr.getparent().remove(tr)
+
+                    fila_encontrada = True
+                    break
+
+        elif (
+            not codigo
+            and nombre
+            and indice_material is not None
+        ):
+
+            for fila in list(
+                tabla_word.rows[1:]
+            ):
+
+                valores = [
+                    limpiar_texto(
+                        celda.text
+                    )
+                    for celda in fila.cells
+                ]
+
+                if (
+                    indice_material < len(valores)
+                    and valores[indice_material] == nombre
+                ):
+
+                    tr = fila._tr
+
+                    tr.getparent().remove(tr)
+
+                    fila_encontrada = True
+                    break
+
+        if fila_encontrada:
+            break
+
+    if not fila_encontrada:
+
+        raise Exception(
+            "No se encontró el material seleccionado "
+            "en el archivo Word."
+        )
+
+    doc.save(str(ruta))
+
+    return ruta
+
+
+# ============================================================
 # NUEVO MATERIAL
 # ============================================================
 
@@ -1391,6 +1534,205 @@ def editar_material():
 
 
 # ============================================================
+# ELIMINAR MATERIAL
+# ============================================================
+
+def eliminar_material():
+
+    global importacion_en_curso
+    global estado_archivos_word
+
+    material = obtener_material_seleccionado()
+
+    if not material:
+        return
+
+    documento = obtener_documento_actual()
+
+    if not documento:
+
+        messagebox.showerror(
+            "Error",
+            "No se encontró el inventario seleccionado.",
+            parent=root,
+        )
+
+        return
+
+    material_id = material.get("id")
+
+    if material_id is None:
+
+        messagebox.showerror(
+            "Error",
+            "El material seleccionado no tiene un ID válido.",
+            parent=root,
+        )
+
+        return
+
+    nombre = (
+        material.get("material")
+        or ""
+    )
+
+    codigo = (
+        material.get("codigo")
+        or "-"
+    )
+
+    unidad = (
+        material.get("unidad")
+        or ""
+    )
+
+    try:
+
+        cantidad = float(
+            material.get(
+                "cantidad",
+                0,
+            )
+            or 0
+        )
+
+    except Exception:
+
+        cantidad = 0
+
+    confirmar = messagebox.askyesno(
+        "Eliminar material",
+
+        f"¿Eliminar este material del inventario "
+        f"y del archivo Word?\n\n"
+
+        f"Código: {codigo}\n"
+        f"Material: {nombre}\n"
+        f"Cantidad: "
+        f"{formatear_numero(cantidad)} "
+        f"{unidad}\n\n"
+
+        f"El material será eliminado del inventario "
+        f"seleccionado y del Word.\n\n"
+
+        f"El historial de movimientos se conservará.",
+
+        parent=root,
+    )
+
+    if not confirmar:
+        return
+
+    with lock_importacion:
+
+        if importacion_en_curso:
+
+            messagebox.showinfo(
+                "Importación",
+                "Hay una importación de Word en curso. "
+                "Esperá a que termine.",
+                parent=root,
+            )
+
+            return
+
+        importacion_en_curso = True
+
+    try:
+
+        ruta = _eliminar_fila_word(
+            documento,
+            material,
+        )
+
+        resultado = (
+            eliminar_material_del_documento(
+                documento["id"],
+                material_id,
+            )
+        )
+
+        try:
+
+            from supabase_db import (
+                actualizar_documento
+            )
+
+            if ruta.exists():
+
+                actualizar_documento(
+                    documento["id"],
+                    ruta.stat().st_mtime,
+                )
+
+        except Exception:
+
+            pass
+
+        try:
+
+            estado_archivos_word[
+                str(ruta.resolve())
+            ] = ruta.stat().st_mtime
+
+        except Exception:
+
+            pass
+
+        invalidar_cache()
+
+        actualizar_todo(True)
+
+        if (
+            isinstance(resultado, dict)
+            and resultado.get(
+                "material_eliminado"
+            )
+        ):
+
+            mensaje = (
+                f"Se eliminó correctamente:\n\n"
+                f"{nombre}\n\n"
+                f"✓ Eliminado del Word\n"
+                f"✓ Eliminado del inventario\n"
+                f"✓ Eliminado de la base general\n"
+                f"✓ Historial de movimientos conservado"
+            )
+
+        else:
+
+            mensaje = (
+                f"Se eliminó correctamente:\n\n"
+                f"{nombre}\n\n"
+                f"✓ Eliminado del Word\n"
+                f"✓ Eliminado del inventario seleccionado\n"
+                f"✓ El material continúa en otros inventarios\n"
+                f"✓ Historial de movimientos conservado"
+            )
+
+        messagebox.showinfo(
+            "Material eliminado",
+            mensaje,
+            parent=root,
+        )
+
+    except Exception as error:
+
+        traceback.print_exc()
+
+        messagebox.showerror(
+            "Error",
+            f"No se pudo eliminar el material:\n\n"
+            f"{error}",
+            parent=root,
+        )
+
+    finally:
+
+        importacion_en_curso = False
+
+
+# ============================================================
 # MOVIMIENTOS
 # ============================================================
 
@@ -1462,6 +1804,1118 @@ def actualizar_movimientos():
 
 
 # ============================================================
+# REPORTES - UTILIDADES
+# ============================================================
+
+def obtener_movimientos_del_inventario():
+
+    movimientos = obtener_movimientos_cache()
+
+    nombre_archivo = (
+        inventario_seleccionado or ""
+    )
+
+    resultado = []
+
+    for movimiento in movimientos:
+
+        if (
+            nombre_archivo
+            and movimiento.get("archivo_origen")
+            and movimiento.get("archivo_origen")
+            != nombre_archivo
+        ):
+            continue
+
+        # Si existe documento_id, preferimos esa relación.
+        documento_id = movimiento.get(
+            "documento_id"
+        )
+
+        documento_actual_id = (
+            obtener_documento_id_actual()
+        )
+
+        if (
+            documento_actual_id is not None
+            and documento_id is not None
+        ):
+
+            try:
+
+                if int(documento_id) != int(
+                    documento_actual_id
+                ):
+                    continue
+
+            except Exception:
+                pass
+
+        resultado.append(movimiento)
+
+    return resultado
+
+
+def convertir_fecha_movimiento(valor):
+
+    if not valor:
+        return None
+
+    texto = str(valor).strip()
+
+    # ISO con fecha y hora
+    try:
+
+        return datetime.fromisoformat(
+            texto.replace("Z", "+00:00")
+        )
+
+    except Exception:
+        pass
+
+    # ISO solamente fecha
+    try:
+
+        return datetime.strptime(
+            texto[:10],
+            "%Y-%m-%d"
+        )
+
+    except Exception:
+        pass
+
+    return None
+
+
+def movimiento_dentro_de_fechas(
+    movimiento,
+    fecha_desde,
+    fecha_hasta,
+):
+
+    fecha = convertir_fecha_movimiento(
+        movimiento.get("fecha")
+    )
+
+    if fecha is None:
+        return False
+
+    # Quitamos timezone si solamente estamos
+    # comparando fechas.
+    fecha_solo = fecha.date()
+
+    if fecha_desde:
+
+        if fecha_solo < fecha_desde:
+            return False
+
+    if fecha_hasta:
+
+        if fecha_solo > fecha_hasta:
+            return False
+
+    return True
+
+
+# ============================================================
+# REPORTE DE INVENTARIO
+# ============================================================
+
+def generar_reporte_inventario_excel():
+
+    documento = obtener_documento_actual()
+
+    if not documento:
+
+        messagebox.showerror(
+            "Reportes",
+            "No se encontró el inventario seleccionado.",
+            parent=root,
+        )
+
+        return
+
+    try:
+
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment
+
+    except ImportError:
+
+        messagebox.showerror(
+            "Reportes",
+            "Falta instalar openpyxl.\n\n"
+            "Ejecutá:\n\n"
+            "pip install openpyxl",
+            parent=root,
+        )
+
+        return
+
+    materiales = obtener_materiales_seleccionados()
+
+    nombre_documento = (
+        documento.get("nombre")
+        or "inventario"
+    )
+
+    nombre_base = Path(
+        nombre_documento
+    ).stem
+
+    fecha_actual = datetime.now().strftime(
+        "%Y-%m-%d_%H-%M"
+    )
+
+    ruta = filedialog.asksaveasfilename(
+        parent=root,
+        title="Guardar reporte de inventario",
+        defaultextension=".xlsx",
+        initialfile=(
+            f"Reporte_Inventario_"
+            f"{nombre_base}_"
+            f"{fecha_actual}.xlsx"
+        ),
+        filetypes=[
+            (
+                "Excel",
+                "*.xlsx",
+            ),
+            (
+                "Todos los archivos",
+                "*.*",
+            ),
+        ],
+    )
+
+    if not ruta:
+        return
+
+    try:
+
+        wb = Workbook()
+
+        ws = wb.active
+        ws.title = "Inventario"
+
+        # ----------------------------------------------------
+        # CABECERA
+        # ----------------------------------------------------
+
+        ws["A1"] = "INVENTARIO MATERIAL NAVAL"
+
+        ws["A1"].font = Font(
+            bold=True,
+            size=16,
+        )
+
+        ws["A2"] = "Inventario:"
+        ws["B2"] = nombre_documento
+
+        ws["A3"] = "Fecha del reporte:"
+        ws["B3"] = datetime.now().strftime(
+            "%d/%m/%Y %H:%M"
+        )
+
+        # ----------------------------------------------------
+        # ENCABEZADOS
+        # ----------------------------------------------------
+
+        encabezados = [
+            "Código",
+            "Material",
+            "Cantidad",
+            "Unidad",
+            "Categoría",
+            "Ubicación",
+            "Observaciones",
+            "Estado",
+        ]
+
+        fila_encabezado = 5
+
+        for columna, encabezado in enumerate(
+            encabezados,
+            start=1,
+        ):
+
+            celda = ws.cell(
+                row=fila_encabezado,
+                column=columna,
+            )
+
+            celda.value = encabezado
+
+            celda.font = Font(
+                bold=True
+            )
+
+            celda.alignment = Alignment(
+                horizontal="center"
+            )
+
+        # ----------------------------------------------------
+        # DATOS
+        # ----------------------------------------------------
+
+        fila = fila_encabezado + 1
+
+        for material in materiales:
+
+            try:
+
+                cantidad = float(
+                    material.get(
+                        "cantidad",
+                        0,
+                    )
+                    or 0
+                )
+
+            except Exception:
+
+                cantidad = 0
+
+            estado = (
+                "HAY STOCK"
+                if cantidad > 0
+                else "SIN STOCK"
+            )
+
+            valores = [
+                material.get("codigo") or "",
+                material.get("material") or "",
+                cantidad,
+                material.get("unidad") or "",
+                material.get("categoria") or "",
+                material.get("ubicacion") or "",
+                material.get("observaciones") or "",
+                estado,
+            ]
+
+            for columna, valor in enumerate(
+                valores,
+                start=1,
+            ):
+
+                ws.cell(
+                    row=fila,
+                    column=columna,
+                    value=valor,
+                )
+
+            fila += 1
+
+        # ----------------------------------------------------
+        # ANCHOS
+        # ----------------------------------------------------
+
+        anchos = {
+            "A": 18,
+            "B": 40,
+            "C": 14,
+            "D": 14,
+            "E": 20,
+            "F": 25,
+            "G": 40,
+            "H": 15,
+        }
+
+        for columna, ancho in anchos.items():
+
+            ws.column_dimensions[
+                columna
+            ].width = ancho
+
+        ws.freeze_panes = "A6"
+
+        # ----------------------------------------------------
+        # RESUMEN
+        # ----------------------------------------------------
+
+        fila_resumen = fila + 2
+
+        total_materiales = len(
+            materiales
+        )
+
+        con_stock = 0
+        sin_stock = 0
+        cantidad_total = 0
+
+        for material in materiales:
+
+            try:
+
+                cantidad = float(
+                    material.get(
+                        "cantidad",
+                        0,
+                    )
+                    or 0
+                )
+
+            except Exception:
+
+                cantidad = 0
+
+            cantidad_total += cantidad
+
+            if cantidad > 0:
+                con_stock += 1
+            else:
+                sin_stock += 1
+
+        ws.cell(
+            row=fila_resumen,
+            column=1,
+            value="Resumen",
+        ).font = Font(
+            bold=True
+        )
+
+        ws.cell(
+            row=fila_resumen + 1,
+            column=1,
+            value="Total materiales",
+        )
+
+        ws.cell(
+            row=fila_resumen + 1,
+            column=2,
+            value=total_materiales,
+        )
+
+        ws.cell(
+            row=fila_resumen + 2,
+            column=1,
+            value="Con stock",
+        )
+
+        ws.cell(
+            row=fila_resumen + 2,
+            column=2,
+            value=con_stock,
+        )
+
+        ws.cell(
+            row=fila_resumen + 3,
+            column=1,
+            value="Sin stock",
+        )
+
+        ws.cell(
+            row=fila_resumen + 3,
+            column=2,
+            value=sin_stock,
+        )
+
+        ws.cell(
+            row=fila_resumen + 4,
+            column=1,
+            value="Cantidad total",
+        )
+
+        ws.cell(
+            row=fila_resumen + 4,
+            column=2,
+            value=cantidad_total,
+        )
+
+        wb.save(ruta)
+
+        messagebox.showinfo(
+            "Reporte generado",
+            "El reporte de inventario se generó correctamente.\n\n"
+            f"Archivo:\n{ruta}",
+            parent=root,
+        )
+
+    except Exception as error:
+
+        traceback.print_exc()
+
+        messagebox.showerror(
+            "Error",
+            "No se pudo generar el reporte:\n\n"
+            f"{error}",
+            parent=root,
+        )
+
+
+# ============================================================
+# REPORTE DE MOVIMIENTOS
+# ============================================================
+
+def generar_reporte_movimientos_excel(
+    ventana=None,
+    fecha_desde=None,
+    fecha_hasta=None,
+):
+
+    documento = obtener_documento_actual()
+
+    if not documento:
+
+        messagebox.showerror(
+            "Reportes",
+            "No se encontró el inventario seleccionado.",
+            parent=root,
+        )
+
+        return
+
+    try:
+
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment
+
+    except ImportError:
+
+        messagebox.showerror(
+            "Reportes",
+            "Falta instalar openpyxl.\n\n"
+            "Ejecutá:\n\n"
+            "pip install openpyxl",
+            parent=root,
+        )
+
+        return
+
+    movimientos = (
+        obtener_movimientos_del_inventario()
+    )
+
+    movimientos_filtrados = []
+
+    for movimiento in movimientos:
+
+        if movimiento_dentro_de_fechas(
+            movimiento,
+            fecha_desde,
+            fecha_hasta,
+        ):
+
+            movimientos_filtrados.append(
+                movimiento
+            )
+
+    nombre_documento = (
+        documento.get("nombre")
+        or "inventario"
+    )
+
+    nombre_base = Path(
+        nombre_documento
+    ).stem
+
+    fecha_actual = datetime.now().strftime(
+        "%Y-%m-%d_%H-%M"
+    )
+
+    ruta = filedialog.asksaveasfilename(
+        parent=ventana or root,
+        title="Guardar reporte de movimientos",
+        defaultextension=".xlsx",
+        initialfile=(
+            f"Reporte_Movimientos_"
+            f"{nombre_base}_"
+            f"{fecha_actual}.xlsx"
+        ),
+        filetypes=[
+            (
+                "Excel",
+                "*.xlsx",
+            ),
+            (
+                "Todos los archivos",
+                "*.*",
+            ),
+        ],
+    )
+
+    if not ruta:
+        return
+
+    try:
+
+        wb = Workbook()
+
+        ws = wb.active
+        ws.title = "Movimientos"
+
+        # ----------------------------------------------------
+        # CABECERA
+        # ----------------------------------------------------
+
+        ws["A1"] = (
+            "HISTORIAL DE MOVIMIENTOS"
+        )
+
+        ws["A1"].font = Font(
+            bold=True,
+            size=16,
+        )
+
+        ws["A2"] = "Inventario:"
+        ws["B2"] = nombre_documento
+
+        ws["A3"] = "Generado:"
+        ws["B3"] = datetime.now().strftime(
+            "%d/%m/%Y %H:%M"
+        )
+
+        ws["A4"] = "Desde:"
+        ws["B4"] = (
+            fecha_desde.strftime("%d/%m/%Y")
+            if fecha_desde
+            else "Todos"
+        )
+
+        ws["A5"] = "Hasta:"
+        ws["B5"] = (
+            fecha_hasta.strftime("%d/%m/%Y")
+            if fecha_hasta
+            else "Todos"
+        )
+
+        # ----------------------------------------------------
+        # ENCABEZADOS
+        # ----------------------------------------------------
+
+        encabezados = [
+            "Fecha",
+            "Código",
+            "Material",
+            "Tipo",
+            "Cantidad",
+            "Stock anterior",
+            "Stock nuevo",
+            "Usuario",
+            "Archivo",
+            "Observaciones",
+        ]
+
+        fila_encabezado = 7
+
+        for columna, encabezado in enumerate(
+            encabezados,
+            start=1,
+        ):
+
+            celda = ws.cell(
+                row=fila_encabezado,
+                column=columna,
+            )
+
+            celda.value = encabezado
+
+            celda.font = Font(
+                bold=True
+            )
+
+            celda.alignment = Alignment(
+                horizontal="center"
+            )
+
+        # ----------------------------------------------------
+        # MATERIALES
+        # ----------------------------------------------------
+
+        materiales_por_id = {
+            m.get("id"): m
+            for m in obtener_materiales_cache()
+        }
+
+        fila = fila_encabezado + 1
+
+        total_entradas = 0
+        total_salidas = 0
+
+        for movimiento in movimientos_filtrados:
+
+            material = materiales_por_id.get(
+                movimiento.get(
+                    "material_id"
+                )
+            )
+
+            tipo = (
+                movimiento.get("tipo")
+                or ""
+            )
+
+            try:
+
+                cantidad = float(
+                    movimiento.get(
+                        "cantidad",
+                        0,
+                    )
+                    or 0
+                )
+
+            except Exception:
+
+                cantidad = 0
+
+            if tipo.upper() in (
+                "ENTRADA",
+                "INGRESO",
+                "ALTA",
+            ):
+
+                total_entradas += cantidad
+
+            elif tipo.upper() in (
+                "SALIDA",
+                "RETIRO",
+               "BAJA",
+            ):
+
+                total_salidas += cantidad
+
+            valores = [
+                movimiento.get("fecha") or "",
+                (
+                    material.get("codigo")
+                    if material
+                    else ""
+                ),
+                (
+                    material.get("material")
+                    if material
+                    else "Material eliminado"
+                ),
+                tipo,
+                cantidad,
+                movimiento.get(
+                    "stock_anterior"
+                ) or 0,
+                movimiento.get(
+                    "stock_nuevo"
+                ) or 0,
+                movimiento.get("usuario") or "",
+                movimiento.get(
+                    "archivo_origen"
+                ) or "",
+                movimiento.get(
+                    "observaciones"
+                ) or "",
+            ]
+
+            for columna, valor in enumerate(
+                valores,
+                start=1,
+            ):
+
+                ws.cell(
+                    row=fila,
+                    column=columna,
+                    value=valor,
+                )
+
+            fila += 1
+
+        # ----------------------------------------------------
+        # ANCHOS
+        # ----------------------------------------------------
+
+        anchos = {
+            "A": 25,
+            "B": 18,
+            "C": 40,
+            "D": 15,
+            "E": 14,
+            "F": 18,
+            "G": 18,
+            "H": 15,
+            "I": 35,
+            "J": 40,
+        }
+
+        for columna, ancho in anchos.items():
+
+            ws.column_dimensions[
+                columna
+            ].width = ancho
+
+        ws.freeze_panes = "A8"
+
+        # ----------------------------------------------------
+        # RESUMEN
+        # ----------------------------------------------------
+
+        fila_resumen = fila + 2
+
+        ws.cell(
+            row=fila_resumen,
+            column=1,
+            value="Resumen",
+        ).font = Font(
+            bold=True
+        )
+
+        ws.cell(
+            row=fila_resumen + 1,
+            column=1,
+            value="Movimientos registrados",
+        )
+
+        ws.cell(
+            row=fila_resumen + 1,
+            column=2,
+            value=len(
+                movimientos_filtrados
+            ),
+        )
+
+        ws.cell(
+            row=fila_resumen + 2,
+            column=1,
+            value="Total entradas",
+        )
+
+        ws.cell(
+            row=fila_resumen + 2,
+            column=2,
+            value=total_entradas,
+        )
+
+        ws.cell(
+            row=fila_resumen + 3,
+            column=1,
+            value="Total salidas",
+        )
+
+        ws.cell(
+            row=fila_resumen + 3,
+            column=2,
+            value=total_salidas,
+        )
+
+        wb.save(ruta)
+
+        if ventana is not None:
+
+            try:
+                ventana.destroy()
+            except Exception:
+                pass
+
+        messagebox.showinfo(
+            "Reporte generado",
+            "El reporte de movimientos se generó correctamente.\n\n"
+            f"Movimientos incluidos: "
+            f"{len(movimientos_filtrados)}\n\n"
+            f"Archivo:\n{ruta}",
+            parent=root,
+        )
+
+    except Exception as error:
+
+        traceback.print_exc()
+
+        messagebox.showerror(
+            "Error",
+            "No se pudo generar el reporte:\n\n"
+            f"{error}",
+            parent=ventana or root,
+        )
+
+
+# ============================================================
+# VENTANA DE REPORTES
+# ============================================================
+
+def abrir_reportes():
+
+    if not inventario_seleccionado:
+
+        messagebox.showwarning(
+            "Reportes",
+            "Primero seleccioná un inventario.",
+            parent=root,
+        )
+
+        return
+
+    ventana = tk.Toplevel(root)
+
+    ventana.title(
+        "Reportes"
+    )
+
+    ventana.geometry(
+        "560x470"
+    )
+
+    ventana.transient(root)
+    ventana.grab_set()
+
+    marco = ttk.Frame(
+        ventana,
+        padding=25,
+    )
+
+    marco.pack(
+        fill="both",
+        expand=True,
+    )
+
+    ttk.Label(
+        marco,
+        text="📊 Reportes",
+        font=(
+            "Segoe UI",
+            18,
+            "bold",
+        ),
+    ).pack(
+        pady=(5, 8)
+    )
+
+    ttk.Label(
+        marco,
+        text=(
+            f"Inventario: "
+            f"{inventario_seleccionado}"
+        ),
+        foreground=COLOR_AZUL,
+        font=(
+            "Segoe UI",
+            10,
+            "bold",
+        ),
+    ).pack(
+        pady=(0, 20)
+    )
+
+    # ========================================================
+    # REPORTE INVENTARIO
+    # ========================================================
+
+    ttk.Label(
+        marco,
+        text="Inventario actual",
+        font=(
+            "Segoe UI",
+            11,
+            "bold",
+        ),
+    ).pack(
+        anchor="w"
+    )
+
+    ttk.Label(
+        marco,
+        text=(
+            "Genera un Excel con todos los materiales "
+            "del inventario seleccionado."
+        ),
+        foreground=COLOR_TEXTO_SECUNDARIO,
+    ).pack(
+        anchor="w",
+        pady=(2, 7),
+    )
+
+    ttk.Button(
+        marco,
+        text="📦 Generar reporte de inventario",
+        command=generar_reporte_inventario_excel,
+    ).pack(
+        fill="x",
+        pady=(0, 18),
+        ipady=4,
+    )
+
+    # ========================================================
+    # REPORTE MOVIMIENTOS
+    # ========================================================
+
+    ttk.Label(
+        marco,
+        text="Movimientos",
+        font=(
+            "Segoe UI",
+            11,
+            "bold",
+        ),
+    ).pack(
+        anchor="w"
+    )
+
+    ttk.Label(
+        marco,
+        text=(
+            "Podés generar el historial completo "
+            "o seleccionar un período."
+        ),
+        foreground=COLOR_TEXTO_SECUNDARIO,
+    ).pack(
+        anchor="w",
+        pady=(2, 8),
+    )
+
+    frame_fechas = ttk.Frame(
+        marco
+    )
+
+    frame_fechas.pack(
+        fill="x",
+        pady=(0, 10),
+    )
+
+    ttk.Label(
+        frame_fechas,
+        text="Desde:",
+    ).grid(
+        row=0,
+        column=0,
+        sticky="w",
+        padx=(0, 5),
+    )
+
+    entrada_desde = ttk.Entry(
+        frame_fechas,
+        width=15,
+    )
+
+    entrada_desde.grid(
+        row=0,
+        column=1,
+        sticky="w",
+        padx=(0, 15),
+    )
+
+    ttk.Label(
+        frame_fechas,
+        text="Hasta:",
+    ).grid(
+        row=0,
+        column=2,
+        sticky="w",
+        padx=(0, 5),
+    )
+
+    entrada_hasta = ttk.Entry(
+        frame_fechas,
+        width=15,
+    )
+
+    entrada_hasta.grid(
+        row=0,
+        column=3,
+        sticky="w",
+    )
+
+    ttk.Label(
+        marco,
+        text="Formato: DD/MM/AAAA",
+        foreground=COLOR_TEXTO_SECUNDARIO,
+    ).pack(
+        anchor="w",
+        pady=(0, 8),
+    )
+
+    def generar_movimientos():
+
+        texto_desde = (
+            entrada_desde
+            .get()
+            .strip()
+        )
+
+        texto_hasta = (
+            entrada_hasta
+            .get()
+            .strip()
+        )
+
+        fecha_desde = None
+        fecha_hasta = None
+
+        if texto_desde:
+
+            try:
+
+                fecha_desde = datetime.strptime(
+                    texto_desde,
+                    "%d/%m/%Y",
+                ).date()
+
+            except ValueError:
+
+                messagebox.showerror(
+                    "Fecha",
+                    "La fecha 'Desde' no es válida.\n\n"
+                    "Usá el formato DD/MM/AAAA.",
+                    parent=ventana,
+                )
+
+                return
+
+        if texto_hasta:
+
+            try:
+
+                fecha_hasta = datetime.strptime(
+                    texto_hasta,
+                    "%d/%m/%Y",
+                ).date()
+
+            except ValueError:
+
+                messagebox.showerror(
+                    "Fecha",
+                    "La fecha 'Hasta' no es válida.\n\n"
+                    "Usá el formato DD/MM/AAAA.",
+                    parent=ventana,
+                )
+
+                return
+
+        if (
+            fecha_desde
+            and fecha_hasta
+            and fecha_desde > fecha_hasta
+        ):
+
+            messagebox.showerror(
+                "Fechas",
+                "La fecha 'Desde' no puede ser posterior "
+                "a la fecha 'Hasta'.",
+                parent=ventana,
+            )
+
+            return
+
+        generar_reporte_movimientos_excel(
+            ventana=ventana,
+            fecha_desde=fecha_desde,
+            fecha_hasta=fecha_hasta,
+        )
+
+    ttk.Button(
+        marco,
+        text="📜 Generar reporte de movimientos",
+        command=generar_movimientos,
+    ).pack(
+        fill="x",
+        pady=(0, 18),
+        ipady=4,
+    )
+
+    ttk.Button(
+        marco,
+        text="Cerrar",
+        command=ventana.destroy,
+    ).pack(
+        pady=(0, 5)
+    )
+
+
+# ============================================================
 # ACTUALIZAR TODO
 # ============================================================
 
@@ -1513,9 +2967,6 @@ def actualizar_todo(forzar=False):
 
                 try:
 
-                    # IMPORTANTE:
-                    # No vuelve al selector si ya estamos
-                    # dentro de un inventario.
                     refrescar_pantalla_seleccion()
 
                     actualizar_tabla()
@@ -2203,36 +3654,13 @@ def crear_cabecera():
 
 
 # ============================================================
-# ============================================================
 # SELECCIÓN DEL INVENTARIO
-# ============================================================
 # ============================================================
 
 def seleccionar_inventario(documento):
 
-    """
-    ESTA ES LA FUNCIÓN CLAVE.
-
-    La tarjeta entrega directamente el registro completo
-    del documento.
-
-    No dependemos de volver a buscarlo por nombre.
-
-    Se guarda:
-        - ID real de Supabase
-        - nombre
-        - documento completo
-
-    Y se abre inmediatamente el inventario.
-    """
-
     global inventario_seleccionado
     global inventario_seleccionado_id
-
-    # --------------------------------------------------------
-    # Si por alguna razón llega solamente un nombre,
-    # seguimos soportándolo.
-    # --------------------------------------------------------
 
     if isinstance(documento, str):
 
@@ -2258,10 +3686,6 @@ def seleccionar_inventario(documento):
             return
 
         documento = encontrado
-
-    # --------------------------------------------------------
-    # Validación
-    # --------------------------------------------------------
 
     if not isinstance(documento, dict):
 
@@ -2299,10 +3723,6 @@ def seleccionar_inventario(documento):
             ).name
         )
 
-    # --------------------------------------------------------
-    # GUARDAMOS LA SELECCIÓN REAL
-    # --------------------------------------------------------
-
     inventario_seleccionado_id = documento_id
     inventario_seleccionado = nombre
 
@@ -2325,10 +3745,6 @@ def seleccionar_inventario(documento):
         documento.get("ruta"),
     )
 
-    # --------------------------------------------------------
-    # Limpiar búsqueda
-    # --------------------------------------------------------
-
     if entrada_busqueda:
 
         try:
@@ -2339,10 +3755,6 @@ def seleccionar_inventario(documento):
         except Exception:
             pass
 
-    # --------------------------------------------------------
-    # ABRIR DIRECTAMENTE EL INVENTARIO
-    # --------------------------------------------------------
-
     construir_pantalla_inventario()
 
 
@@ -2351,14 +3763,6 @@ def seleccionar_inventario(documento):
 # ============================================================
 
 def refrescar_pantalla_seleccion():
-
-    """
-    Si estamos dentro de un inventario,
-    NO destruimos esa pantalla.
-
-    Esto evita que una sincronización automática
-    nos devuelva al selector.
-    """
 
     if inventario_seleccionado:
         return
@@ -2433,10 +3837,6 @@ def construir_opciones_documentos(parent):
 
     columnas = 2
 
-    # ========================================================
-    # CREAR UNA TARJETA POR DOCUMENTO
-    # ========================================================
-
     for i, doc in enumerate(documentos):
 
         nombre = doc.get(
@@ -2471,10 +3871,6 @@ def construir_opciones_documentos(parent):
             weight=1,
         )
 
-        # ====================================================
-        # FUNCIÓN LOCAL PARA ABRIR ESTE DOCUMENTO
-        # ====================================================
-
         def abrir_documento(
             evento=None,
             documento=doc,
@@ -2482,10 +3878,6 @@ def construir_opciones_documentos(parent):
             seleccionar_inventario(
                 documento
             )
-
-        # ====================================================
-        # ÍCONO
-        # ====================================================
 
         icono = tk.Label(
             tarjeta,
@@ -2500,10 +3892,6 @@ def construir_opciones_documentos(parent):
             side="left",
             padx=(0, 15),
         )
-
-        # ====================================================
-        # INFORMACIÓN
-        # ====================================================
 
         info = tk.Frame(
             tarjeta,
@@ -2555,10 +3943,6 @@ def construir_opciones_documentos(parent):
             anchor="w"
         )
 
-        # ====================================================
-        # TODA LA TARJETA ABRE EL INVENTARIO
-        # ====================================================
-
         tarjeta.bind(
             "<Button-1>",
             abrir_documento,
@@ -2593,10 +3977,6 @@ def mostrar_pantalla_seleccion():
     global tabla_movimientos
     global entrada_busqueda
 
-    # --------------------------------------------------------
-    # Destruir pantalla de inventario
-    # --------------------------------------------------------
-
     if marco_contenido is not None:
 
         try:
@@ -2610,20 +3990,12 @@ def mostrar_pantalla_seleccion():
     tabla_movimientos = None
     entrada_busqueda = None
 
-    # --------------------------------------------------------
-    # Destruir selector anterior
-    # --------------------------------------------------------
-
     if marco_selector is not None:
 
         try:
             marco_selector.destroy()
         except Exception:
             pass
-
-    # --------------------------------------------------------
-    # Crear selector
-    # --------------------------------------------------------
 
     marco_selector = tk.Frame(
         root,
@@ -2660,14 +4032,6 @@ def volver_a_seleccion():
 # ============================================================
 
 def cargar_inventario_seleccionado():
-
-    """
-    Carga los datos DESPUÉS de crear la pantalla.
-
-    De esta manera la interfaz entra inmediatamente
-    al inventario y la consulta a Supabase no bloquea
-    la creación de la ventana.
-    """
 
     if not inventario_seleccionado:
         return
@@ -2733,10 +4097,6 @@ def construir_pantalla_inventario():
     global lbl_cantidad_total
     global lbl_progreso
 
-    # ========================================================
-    # DESTRUIR SELECTOR
-    # ========================================================
-
     if marco_selector is not None:
 
         try:
@@ -2745,10 +4105,6 @@ def construir_pantalla_inventario():
             pass
 
         marco_selector = None
-
-    # ========================================================
-    # DESTRUIR CONTENIDO ANTERIOR
-    # ========================================================
 
     if marco_contenido is not None:
 
@@ -2761,10 +4117,6 @@ def construir_pantalla_inventario():
     tabla_movimientos = None
     entrada_busqueda = None
 
-    # ========================================================
-    # CREAR CONTENIDO
-    # ========================================================
-
     marco_contenido = tk.Frame(
         root,
         bg=COLOR_FONDO,
@@ -2774,10 +4126,6 @@ def construir_pantalla_inventario():
         fill="both",
         expand=True,
     )
-
-    # ========================================================
-    # BARRA SUPERIOR
-    # ========================================================
 
     fs = ttk.Frame(
         marco_contenido,
@@ -2813,10 +4161,6 @@ def construir_pantalla_inventario():
     ).pack(
         side="right"
     )
-
-    # ========================================================
-    # ESTADÍSTICAS
-    # ========================================================
 
     stats = tk.Frame(
         marco_contenido,
@@ -2875,10 +4219,6 @@ def construir_pantalla_inventario():
         side="left"
     )
 
-    # ========================================================
-    # BUSCADOR
-    # ========================================================
-
     fb = ttk.Frame(
         marco_contenido,
         padding=(15, 5),
@@ -2928,8 +4268,10 @@ def construir_pantalla_inventario():
     for text, cmd in (
         ("➕ Nuevo", nuevo_material),
         ("✏️ Editar", editar_material),
+        ("🗑️ Eliminar", eliminar_material),
         ("📥 Agregar", agregar_stock),
         ("📤 Retirar", retirar_stock),
+        ("📊 Reportes", abrir_reportes),
         (
             "🔄 Actualizar",
             lambda: actualizar_todo(True),
@@ -2963,10 +4305,6 @@ def construir_pantalla_inventario():
         padx=3,
     )
 
-    # ========================================================
-    # PROGRESO
-    # ========================================================
-
     lbl_progreso = ttk.Label(
         marco_contenido,
         text="Cargando inventario...",
@@ -2978,10 +4316,6 @@ def construir_pantalla_inventario():
         padx=18,
         pady=(2, 2),
     )
-
-    # ========================================================
-    # TABLA PRINCIPAL
-    # ========================================================
 
     ft = ttk.Frame(
         marco_contenido,
@@ -3100,10 +4434,6 @@ def construir_pantalla_inventario():
         "sin_stock",
         background=COLOR_SIN_STOCK_FONDO,
     )
-
-    # ========================================================
-    # MOVIMIENTOS
-    # ========================================================
 
     ttk.Label(
         marco_contenido,
@@ -3231,10 +4561,6 @@ def construir_pantalla_inventario():
         weight=1,
     )
 
-    # ========================================================
-    # CARGAR DATOS DESPUÉS DE MOSTRAR LA PANTALLA
-    # ========================================================
-
     root.after(
         100,
         cargar_inventario_seleccionado,
@@ -3273,15 +4599,7 @@ def crear_interfaz():
 
     crear_cabecera()
 
-    # --------------------------------------------------------
-    # Mostrar selector inmediatamente
-    # --------------------------------------------------------
-
     mostrar_pantalla_seleccion()
-
-    # --------------------------------------------------------
-    # Conexión / carga inicial
-    # --------------------------------------------------------
 
     def iniciar():
 
@@ -3325,10 +4643,6 @@ def crear_interfaz():
         daemon=True,
     ).start()
 
-    # --------------------------------------------------------
-    # Monitor Word
-    # --------------------------------------------------------
-
     estado_archivos_word = (
         obtener_estado_archivos_word()
     )
@@ -3338,18 +4652,10 @@ def crear_interfaz():
         daemon=True,
     ).start()
 
-    # --------------------------------------------------------
-    # Monitor Supabase
-    # --------------------------------------------------------
-
     threading.Thread(
         target=monitor_sincronizacion,
         daemon=True,
     ).start()
-
-    # --------------------------------------------------------
-    # Importación inicial
-    # --------------------------------------------------------
 
     root.after(
         1500,
