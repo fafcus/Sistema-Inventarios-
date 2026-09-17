@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill
+from openpyxl.styles import Alignment
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -31,6 +31,35 @@ def _numero(valor):
         return valor if valor is not None else ""
 
 
+def _celda_escritura(ws, referencia: str):
+    """
+    Devuelve la celda real donde debe escribirse un valor.
+
+    Excel permite combinar varias celdas, pero openpyxl solo permite escribir
+    en la celda superior izquierda del rango combinado. La plantilla de
+    Relación de Tránsito utiliza varios merges, por lo que no debemos asumir
+    que referencias como B6 o B7 son directamente escribibles.
+    """
+    celda = ws[referencia]
+
+    for rango in ws.merged_cells.ranges:
+        if celda.coordinate in rango:
+            return ws.cell(rango.min_row, rango.min_col)
+
+    return celda
+
+
+def _asignar_valor(ws, referencia: str, valor) -> None:
+    """Escribe un valor respetando automáticamente las celdas combinadas."""
+    _celda_escritura(ws, referencia).value = valor
+
+
+def _asignar_valor_fila(ws, fila: int, columna: int, valor) -> None:
+    """Versión por fila/columna que también soporta rangos combinados."""
+    referencia = ws.cell(fila, columna).coordinate
+    _asignar_valor(ws, referencia, valor)
+
+
 def _copiar_estilo(origen, destino) -> None:
     """Copia el formato de una celda de la plantilla sin copiar su valor."""
     if origen.has_style:
@@ -52,7 +81,9 @@ def _copiar_estilo(origen, destino) -> None:
 def _preparar_fila(ws, fila: int, fila_modelo: int = 12) -> None:
     """Replica el formato de la primera fila de carga de la plantilla."""
     for columna in range(1, 8):
-        _copiar_estilo(ws.cell(fila_modelo, columna), ws.cell(fila, columna))
+        origen = _celda_escritura(ws, ws.cell(fila_modelo, columna).coordinate)
+        destino = _celda_escritura(ws, ws.cell(fila, columna).coordinate)
+        _copiar_estilo(origen, destino)
     ws.row_dimensions[fila].height = ws.row_dimensions[fila_modelo].height
 
 
@@ -123,9 +154,9 @@ def generar_relacion_transito(
     ws = wb["Hoja1"]
 
     # Encabezado de la relación.
-    ws["G11"] = "OBSERVACIONES / UBICACIÓN"
-    _copiar_estilo(ws["F11"], ws["G11"])
-    ws["G11"].alignment = copy(ws["F11"].alignment)
+    _asignar_valor(ws, "G11", "OBSERVACIONES / UBICACIÓN")
+    _copiar_estilo(_celda_escritura(ws, "F11"), _celda_escritura(ws, "G11"))
+    _celda_escritura(ws, "G11").alignment = copy(_celda_escritura(ws, "F11").alignment)
 
     if fecha is None:
         fecha_texto = datetime.now().strftime("%d/%m/%Y")
@@ -134,10 +165,10 @@ def generar_relacion_transito(
     else:
         fecha_texto = _texto(fecha)
 
-    ws["G2"] = fecha_texto
-    ws["B6"] = _texto(tipo_movimiento)
-    ws["B7"] = _texto(destino)
-    ws["B8"] = _texto(transporte)
+    _asignar_valor(ws, "G2", fecha_texto)
+    _asignar_valor(ws, "B6", _texto(tipo_movimiento))
+    _asignar_valor(ws, "B7", _texto(destino))
+    _asignar_valor(ws, "B8", _texto(transporte))
 
     fila_inicial = 12
     fila_modelo = 12
@@ -165,15 +196,15 @@ def generar_relacion_transito(
         numero_parte = _texto(material.get("numero_parte")) or codigo
         observaciones = _observaciones_con_ubicacion(material)
 
-        ws.cell(fila, 1).value = indice
-        ws.cell(fila, 2).value = _numero(material.get("cantidad"))
-        ws.cell(fila, 3).value = nombre
-        ws.cell(fila, 4).value = marca
-        ws.cell(fila, 5).value = numero_serie
-        ws.cell(fila, 6).value = numero_parte
-        ws.cell(fila, 7).value = observaciones
+        _asignar_valor_fila(ws, fila, 1, indice)
+        _asignar_valor_fila(ws, fila, 2, _numero(material.get("cantidad")))
+        _asignar_valor_fila(ws, fila, 3, nombre)
+        _asignar_valor_fila(ws, fila, 4, marca)
+        _asignar_valor_fila(ws, fila, 5, numero_serie)
+        _asignar_valor_fila(ws, fila, 6, numero_parte)
+        _asignar_valor_fila(ws, fila, 7, observaciones)
 
-        ws.cell(fila, 7).alignment = Alignment(
+        _celda_escritura(ws, ws.cell(fila, 7).coordinate).alignment = Alignment(
             horizontal="left",
             vertical="center",
             wrap_text=True,
@@ -183,7 +214,7 @@ def generar_relacion_transito(
     ultima_fila = fila_inicial + filas_necesarias - 1
     for fila in range(ultima_fila + 1, ws.max_row + 1):
         for columna in range(1, 8):
-            ws.cell(fila, columna).value = None
+            _asignar_valor_fila(ws, fila, columna, None)
 
     ws.freeze_panes = "A12"
     ws.sheet_view.showGridLines = False
