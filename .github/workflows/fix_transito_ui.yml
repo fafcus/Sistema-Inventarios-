@@ -2,31 +2,33 @@ name: Fix Relacion de Transito UI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   fix:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Apply UI fix
+
+      - name: Fix main and restore transit module
+        shell: bash
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
           import re
 
           p = Path('main.py')
           s = p.read_text(encoding='utf-8')
-
           new_func = '''def generar_relacion_transito_ui():
 
-    """Abre directamente el selector general de materiales para la Relación de Tránsito."""
+    """Abre directamente el selector general de materiales."""
 
     tipo_movimiento = simpledialog.askstring(
         "Relación de Tránsito",
@@ -64,8 +66,6 @@ jobs:
         return
 
     try:
-        # Un material vacío activa el selector general de relacion_transito.py.
-        # No se exige seleccionar previamente un material en la pantalla principal.
         generar_relacion_transito(
             materiales=[{}],
             salida=salida,
@@ -74,21 +74,12 @@ jobs:
             transporte=transporte,
         )
 
-        pdf_generado = getattr(
-            generar_relacion_transito,
-            "ultimo_pdf",
-            None,
-        )
-
-        mensaje = f"La Relación de Tránsito se generó correctamente.\\n\\nArchivo Excel:\\n{salida}"
+        pdf_generado = getattr(generar_relacion_transito, "ultimo_pdf", None)
+        mensaje = f"La Relación de Tránsito se generó correctamente.\\n\\nExcel:\\n{salida}"
         if pdf_generado:
-            mensaje += f"\\n\\nArchivo PDF:\\n{pdf_generado}"
+            mensaje += f"\\n\\nPDF:\\n{pdf_generado}"
 
-        messagebox.showinfo(
-            "Relación de Tránsito",
-            mensaje,
-            parent=root,
-        )
+        messagebox.showinfo("Relación de Tránsito", mensaje, parent=root)
 
     except RelacionTransitoError as error:
         traceback.print_exc()
@@ -97,7 +88,6 @@ jobs:
             f"No se pudo generar la relación:\\n\\n{error}",
             parent=root,
         )
-
     except Exception as error:
         traceback.print_exc()
         messagebox.showerror(
@@ -112,13 +102,14 @@ jobs:
           patron = r'def generar_relacion_transito_ui\(\):.*?(?=\n# ={10,}\n)'
           nuevo, n = re.subn(patron, new_func.rstrip(), s, count=1, flags=re.S)
           if n != 1:
-              raise SystemExit('No se encontró generar_relacion_transito_ui en main.py')
+              raise SystemExit('No se encontró generar_relacion_transito_ui')
           p.write_text(nuevo, encoding='utf-8')
           PY
 
+          git checkout 13ad22f8049a914b23527a5bbdedaab358c9153d -- relacion_transito.py
           rm -f .github/workflows/fix_transito_ui.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add main.py .github/workflows/fix_transito_ui.yml
-          git commit -m 'fix: abrir selector general desde relacion de transito'
+          git add main.py relacion_transito.py .github/workflows/fix_transito_ui.yml
+          git commit -m 'fix: corregir selector y origen de relacion de transito'
           git push
