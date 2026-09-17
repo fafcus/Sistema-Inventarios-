@@ -3,6 +3,16 @@ from pathlib import Path
 import re
 
 
+def probar_conexion():
+    """Prueba la conexión con Supabase."""
+    try:
+        supabase.table("materiales").select("id").limit(1).execute()
+        return True
+    except Exception as e:
+        print(f"Error de conexión con Supabase: {e}")
+        return False
+
+
 def _float(valor, default=0.0):
     try:
         return float(valor or 0)
@@ -204,25 +214,13 @@ def actualizar_cantidad_documento_item(item_id, nueva_cantidad, usuario=None, ob
     documento = supabase.table("documentos").select("*").eq("id", documento_id).limit(1).execute().data or []
     documento = documento[0] if documento else None
     if not documento: raise Exception("No se encontró el documento seleccionado.")
-    # Primero se intenta actualizar físicamente el Word. Si no existe el archivo, no se toca la base para evitar inconsistencias.
     if not _actualizar_word_cantidad(documento, item, nueva_cantidad):
         raise Exception("No se pudo actualizar la cantidad en el archivo Word.")
-    # La nueva cantidad pasa a ser la base. Se eliminan ajustes específicos anteriores.
     data = supabase.table("documento_items").update({"cantidad": nueva_cantidad}).eq("id", item_id).execute().data or []
     if not data: raise Exception("No se pudo actualizar documento_items.")
     supabase.table("ajustes_stock").delete().eq("documento_id", documento_id).eq("material_id", material_id).execute()
     tipo = "ENTRADA" if diferencia > 0 else "SALIDA"
-    registrar_movimiento(
-        material_id,
-        tipo,
-        abs(diferencia),
-        stock_actual,
-        nueva_cantidad,
-        usuario,
-        observaciones,
-        archivo_origen,
-        documento_id=documento_id,
-    )
+    registrar_movimiento(material_id, tipo, abs(diferencia), stock_actual, nueva_cantidad, usuario, observaciones, archivo_origen, documento_id=documento_id)
     return nueva_cantidad
 
 
@@ -300,7 +298,6 @@ def calcular_inventario_general(materiales=None, items=None, ajustes=None):
 
 
 def obtener_inventario_general():
-    # Exactamente tres consultas, independientemente de que haya 10 o 10.000 materiales.
     materiales = obtener_materiales()
     items = obtener_todos_items_documento()
     ajustes = obtener_ajustes_stock()
@@ -313,7 +310,6 @@ def obtener_stock_documentos_material(material_id):
 
 
 def obtener_stock_general_material(material_id):
-    # Ruta usada por una operación manual: pocas consultas y sin N consultas por cada material.
     material_id = int(material_id)
     if obtener_material(material_id) is None: raise Exception("No se encontró el material.")
     return obtener_stock_documentos_material(material_id) + obtener_ajuste_total(material_id)
