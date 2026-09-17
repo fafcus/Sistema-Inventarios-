@@ -110,8 +110,54 @@ def convertir_excel_a_pdf(excel_path: str | Path, pdf_path: str | Path | None = 
     raise RelacionTransitoPDFError("No se pudo convertir la relación a PDF. Se necesita LibreOffice o Microsoft Excel instalado en esta PC.")
 
 
+def _resolver_origen(material):
+    """Resuelve el origen real incluso si la UI no entregó todos los IDs."""
+    material_id = material.get("id")
+    if material_id is None:
+        return None
+
+    try:
+        origenes = obtener_origenes_material(int(material_id)) or []
+    except Exception:
+        origenes = []
+
+    documento_item_id = material.get("_documento_item_id")
+    documento_id = material.get("_documento_id")
+    archivo = str(material.get("archivo_origen") or "").strip().lower()
+    ubicacion = str(material.get("ubicacion") or "").strip().lower()
+
+    if documento_item_id is not None:
+        for origen in origenes:
+            if origen.get("documento_item_id") == documento_item_id:
+                return origen
+
+    if documento_id is not None:
+        candidatos = [o for o in origenes if o.get("documento_id") == documento_id]
+        if len(candidatos) == 1:
+            return candidatos[0]
+        if candidatos:
+            # Si existen filas consolidadas, la primera representa el origen
+            # lógico documento/material y su stock ya está consolidado.
+            return candidatos[0]
+
+    candidatos = origenes
+    if archivo:
+        por_archivo = [o for o in candidatos if str(o.get("archivo_origen") or "").strip().lower() == archivo]
+        if por_archivo:
+            candidatos = por_archivo
+    if ubicacion:
+        por_ubicacion = [o for o in candidatos if str(o.get("ubicacion") or "").strip().lower() == ubicacion]
+        if por_ubicacion:
+            candidatos = por_ubicacion
+
+    if len(candidatos) == 1:
+        return candidatos[0]
+
+    return None
+
+
 def descontar_materiales_relacion(materiales, usuario=None, identificador_relacion=None):
-    """Descuenta stock conservando el documento_item/origen seleccionado."""
+    """Descuenta stock conservando el documento/origen seleccionado."""
     materiales = list(materiales or [])
     if not materiales:
         raise RelacionTransitoPDFError("La relación no contiene materiales para descontar.")
@@ -134,48 +180,53 @@ def descontar_materiales_relacion(materiales, usuario=None, identificador_relaci
         observacion_base += f": {identificador_relacion}"
 
     # Validar TODO antes de modificar cualquier registro.
+    origenes_resueltos = []
     for material_id, cantidad, material in pendientes:
-        if material.get("_documento_item_id") is not None and material.get("_documento_id") is not None:
-            origen = next((o for o in obtener_origenes_material(material_id) if o.get("documento_item_id") == material.get("_documento_item_id")), None)
-            if origen is None:
-                raise RelacionTransitoPDFError(f"No se encontró el origen seleccionado para '{material.get('material') or material_id}'.")
+        origen = _resolver_origen(material)
+        if origen is not None:
             stock = float(origen.get("stock_disponible") or 0)
         else:
             stock = float(obtener_stock_general_material(material_id) or 0)
+            # Si el material tiene varios orígenes y la UI no especificó cuál,
+            # no adivinamos: una salida ambigua debe ser rechazada.
+            try:
+                cantidad_origenes = len(obtener_origenes_material(int(material_id)) or [])
+            except Exception:
+                cantidad_origenes = 0
+            if cantidad_origenes > 1:
+                raise RelacionTransitoPDFError(
+                    f"No se pudo determinar el origen de '{material.get('material') or material_id}'. "
+                    "Seleccioná una ubicación/origen antes de generar la relación."
+                )
         if cantidad > stock + 0.000001:
             raise RelacionTransitoPDFError(f"Stock insuficiente para '{material.get('material') or material_id}'. Disponible: {stock:g}. A retirar: {cantidad:g}.")
+        origenes_resueltos.append(origen)
 
     aplicados = []
     try:
-        for material_id, cantidad, material in pendientes:
+        for (material_id, cantidad, material), origen in zip(pendientes, origenes_resueltos):
             observaciones = observacion_base
             if material.get("ubicacion"):
                 observaciones += f" | Ubicación: {material.get('ubicacion')}"
             if material.get("archivo_origen"):
                 observaciones += f" | Origen: {material.get('archivo_origen')}"
 
-            if material.get("_documento_item_id") is not None and material.get("_documento_id") is not None:
-                origen = {
-                    "material_id": material_id,
-                    "documento_id": material.get("_documento_id"),
-                    "documento_item_id": material.get("_documento_item_id"),
-                    "archivo_origen": material.get("archivo_origen"),
-                }
+            if origen is not None:
                 descontar_origen_material(origen, cantidad, usuario=usuario, observaciones=observaciones)
             else:
                 agregar_ajuste_stock(material_id, -cantidad, usuario=usuario, observaciones=observaciones)
-            aplicados.append((material_id, cantidad, material))
+            aplicados.append((material_id, cantidad, material, origen))
 
-        return {"materiales": len(aplicados), "cantidad_total": sum(cantidad for _, cantidad, _ in aplicados)}
+        return {"materiales": len(aplicados), "cantidad_total": sum(cantidad for _, cantidad, _, _ in aplicados)}
     except Exception as error:
         # Revertir únicamente lo ya aplicado, manteniendo el mismo origen.
-        for material_id, cantidad, material in reversed(aplicados):
+        for material_id, cantidad, material, origen in reversed(aplicados):
             try:
-                if material.get("_documento_item_id") is not None and material.get("_documento_id") is not None:
+                if origen is not None:
                     from config import supabase
                     supabase.table("ajustes_stock").insert({
                         "material_id": int(material_id),
-                        "documento_id": int(material.get("_documento_id")),
+                        "documento_id": int(origen.get("documento_id")),
                         "cantidad": cantidad,
                         "usuario": usuario,
                         "observaciones": f"Reversión automática por error en {observacion_base}",
