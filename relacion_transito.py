@@ -325,10 +325,16 @@ def generar_relacion_transito(materiales: Iterable[Mapping], salida: str | Path,
         fila = fila_inicial + indice - 1
         if fila != fila_modelo:
             _preparar_fila(ws, fila, fila_modelo)
-        ubicacion = _texto(material.get("ubicacion"))
-        # La columna Observaciones queda reservada únicamente para informar la ubicación.
-        observaciones = f"Ubicación: {ubicacion}" if ubicacion else "Ubicación: Sin ubicación registrada"
-        valores = {1: indice, 2: _numero(material.get("cantidad")), 3: _texto(material.get("material")), 4: _texto(material.get("marca")), 5: _texto(material.get("numero_serie")), 6: _texto(material.get("numero_parte")) or _texto(material.get("codigo")), columna_obs: observaciones}
+        ubicacion = _texto(material.get("ubicacion")) or "Sin ubicación registrada"
+        valores = {
+            1: indice,
+            2: _numero(material.get("cantidad")),
+            3: _texto(material.get("material")),
+            4: _texto(material.get("marca")),
+            5: _texto(material.get("numero_serie")),
+            6: _texto(material.get("numero_parte")) or _texto(material.get("codigo")),
+            columna_obs: f"Ubicación: {ubicacion}",
+        }
         for columna, valor in valores.items():
             _asignar_valor_fila(ws, fila, columna, valor)
         _celda_escritura(ws, ws.cell(fila, columna_obs).coordinate).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
