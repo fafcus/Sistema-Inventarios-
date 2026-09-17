@@ -25,10 +25,23 @@ create index if not exists idx_solicitudes_usuarios_estado
 create index if not exists idx_solicitudes_usuarios_email
     on public.solicitudes_usuarios (lower(email));
 
--- Si tu proyecto ya usa RLS, estas políticas permiten que el cliente
--- pueda crear una solicitud y que un usuario autenticado pueda consultar
--- las solicitudes. La aplicación además limita las acciones administrativas
--- al rol administrador.
+-- Función usada por las políticas RLS para determinar si el usuario
+-- autenticado es un administrador activo.
+create or replace function public.usuario_es_administrador()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+    select exists (
+        select 1
+        from public.usuarios u
+        where u.id = auth.uid()
+          and lower(coalesce(u.rol, '')) = 'administrador'
+          and coalesce(u.activo, false) = true
+    );
+$$;
+
 alter table public.solicitudes_usuarios enable row level security;
 
 drop policy if exists solicitudes_insertar on public.solicitudes_usuarios;
@@ -46,18 +59,20 @@ create policy solicitudes_consultar
 on public.solicitudes_usuarios
 for select
 to authenticated
-using (true);
+using (public.usuario_es_administrador());
 
 drop policy if exists solicitudes_actualizar on public.solicitudes_usuarios;
 create policy solicitudes_actualizar
 on public.solicitudes_usuarios
 for update
 to authenticated
-using (true)
-with check (estado in ('pendiente', 'aprobada', 'rechazada'));
+using (public.usuario_es_administrador())
+with check (
+    estado in ('pendiente', 'aprobada', 'rechazada')
+);
 
 -- IMPORTANTE:
 -- La tabla usuarios debe permitir que la aplicación cree el perfil inicial
 -- inactivo durante una solicitud y que un administrador active/cambie el rol.
--- Si usuarios tiene RLS y actualmente bloquea estas operaciones, ajustaremos
--- sus políticas según el esquema que tengas en Supabase.
+-- Si usuarios tiene RLS y actualmente bloquea estas operaciones, habrá que
+-- agregar políticas equivalentes para esa tabla.
