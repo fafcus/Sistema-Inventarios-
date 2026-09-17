@@ -23,6 +23,7 @@ from supabase_db import (
 )
 import importar_word
 from relacion_transito import RelacionTransitoError, generar_relacion_transito
+from ui_relacion_transito import abrir_selector_relacion_transito
 
 
 # ============================================================
@@ -4206,86 +4207,12 @@ def cargar_inventario_seleccionado():
 # ============================================================
 # RELACIÓN DE TRÁNSITO
 # ============================================================
+# La interfaz vive en ui_relacion_transito.py para mantener un único
+# selector general de materiales, sin exigir una selección previa en
+# la pantalla principal del inventario.
 
 def generar_relacion_transito_ui():
-
-    material = obtener_material_seleccionado()
-
-    if not material:
-        return
-
-    tipo_movimiento = simpledialog.askstring(
-        "Relación de Tránsito",
-        "Tipo de movimiento:",
-        parent=root,
-    )
-
-    if tipo_movimiento is None:
-        return
-
-    destino = simpledialog.askstring(
-        "Relación de Tránsito",
-        "Destino:",
-        parent=root,
-    )
-
-    if destino is None:
-        return
-
-    transporte = simpledialog.askstring(
-        "Relación de Tránsito",
-        "Transporte:",
-        parent=root,
-    )
-
-    if transporte is None:
-        return
-
-    nombre = limpiar_texto(material.get("material")) or "material"
-    nombre_archivo = f"RELACION DE TRANSITO_{datetime.now():%Y%m%d_%H%M%S}.xlsx"
-
-    salida = filedialog.asksaveasfilename(
-        parent=root,
-        title="Guardar Relación de Tránsito",
-        defaultextension=".xlsx",
-        initialfile=nombre_archivo,
-        filetypes=[("Excel", "*.xlsx")],
-    )
-
-    if not salida:
-        return
-
-    try:
-        generar_relacion_transito(
-            materiales=[material],
-            salida=salida,
-            tipo_movimiento=tipo_movimiento,
-            destino=destino,
-            transporte=transporte,
-        )
-
-        messagebox.showinfo(
-            "Relación de Tránsito",
-            f"La relación de tránsito de \"{nombre}\" se generó correctamente.\n\n"
-            f"Archivo:\n{salida}",
-            parent=root,
-        )
-
-    except RelacionTransitoError as error:
-        traceback.print_exc()
-        messagebox.showerror(
-            "Relación de Tránsito",
-            f"No se pudo generar la relación de tránsito:\n\n{error}",
-            parent=root,
-        )
-
-    except Exception as error:
-        traceback.print_exc()
-        messagebox.showerror(
-            "Relación de Tránsito",
-            f"Ocurrió un error inesperado al generar la relación:\n\n{error}",
-            parent=root,
-        )
+    return abrir_selector_relacion_transito(__import__("sys").modules[__name__])
 
 
 # ============================================================
