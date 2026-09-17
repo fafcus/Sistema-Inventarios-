@@ -8,6 +8,12 @@ from typing import Iterable, Mapping
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 
+from relacion_transito_pdf import (
+    convertir_excel_a_pdf,
+    descontar_materiales_relacion,
+    RelacionTransitoPDFError,
+)
+
 BASE_DIR = Path(__file__).resolve().parent
 PLANTILLA_RELACION_TRANSITO = BASE_DIR / "plantillas" / "RELACION DE TRANSITO.xlsx"
 
@@ -123,8 +129,15 @@ def generar_relacion_transito(
     transporte: str = "",
     fecha: datetime | str | None = None,
     plantilla: str | Path | None = None,
+    usuario: str | None = None,
 ) -> Path:
-    """Genera la Relación de Tránsito usando la plantilla oficial del proyecto.
+    """Genera la Relación de Tránsito, su PDF y descuenta el stock retirado.
+
+    Flujo:
+      1. Genera el Excel usando la plantilla oficial.
+      2. Convierte ese mismo Excel a PDF.
+      3. Solo si el PDF se generó correctamente, descuenta del inventario
+         general las cantidades indicadas en la relación.
 
     La fecha se carga automáticamente con la fecha del momento de generación.
     El campo Observaciones queda vacío y no incorpora información del material.
@@ -141,6 +154,25 @@ def generar_relacion_transito(
         raise RelacionTransitoError(
             "No hay materiales para generar la relación de tránsito."
         )
+
+    # Validación previa: evita crear una relación que después no pueda
+    # descontarse por falta de stock o por materiales sin ID.
+    for material in materiales:
+        if material.get("id") is None:
+            raise RelacionTransitoError(
+                f"El material '{material.get('material') or material.get('codigo') or 'sin nombre'}' "
+                "no tiene ID de base de datos."
+            )
+        try:
+            cantidad = float(material.get("cantidad") or 0)
+        except (TypeError, ValueError):
+            raise RelacionTransitoError(
+                f"Cantidad inválida para '{material.get('material') or material.get('codigo') or 'sin nombre'}'."
+            )
+        if cantidad <= 0:
+            raise RelacionTransitoError(
+                f"La cantidad a retirar debe ser mayor que cero para '{material.get('material') or material.get('codigo') or 'sin nombre'}'."
+            )
 
     try:
         wb = load_workbook(plantilla)
@@ -237,6 +269,30 @@ def generar_relacion_transito(
             f"No se pudo guardar la Relación de Tránsito: {error}"
         ) from error
 
+    # El PDF se genera a partir del Excel recién creado. No se descuenta stock
+    # hasta comprobar que el PDF existe correctamente.
+    pdf_salida = salida.with_suffix(".pdf")
+    try:
+        convertir_excel_a_pdf(salida, pdf_salida)
+    except RelacionTransitoPDFError as error:
+        raise RelacionTransitoError(str(error)) from error
+
+    try:
+        resultado_stock = descontar_materiales_relacion(
+            materiales,
+            usuario=usuario,
+            identificador_relacion=salida.stem,
+        )
+    except RelacionTransitoPDFError as error:
+        raise RelacionTransitoError(
+            f"La relación Excel y PDF fueron generados, pero no se pudo descontar el stock:\n{error}"
+        ) from error
+
+    # Deja un resumen accesible para el código que necesite informar el
+    # resultado sin cambiar el valor de retorno histórico (la ruta XLSX).
+    generar_relacion_transito.ultimo_pdf = pdf_salida
+    generar_relacion_transito.ultimo_resultado_stock = resultado_stock
+
     return salida
 
 
@@ -247,6 +303,7 @@ def generar_desde_inventario(
     destino: str = "",
     transporte: str = "",
     fecha: datetime | str | None = None,
+    usuario: str | None = None,
 ) -> Path:
     carpeta_salida = Path(carpeta_salida)
     marca_fecha = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -259,4 +316,5 @@ def generar_desde_inventario(
         destino=destino,
         transporte=transporte,
         fecha=fecha,
+        usuario=usuario,
     )
