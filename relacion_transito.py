@@ -108,7 +108,6 @@ def _columna_observaciones(ws):
 
 
 def _fuentes_material(material_id):
-    """Obtiene ubicaciones, documentos y observaciones donde aparece un material."""
     try:
         items = (
             supabase.table("documento_items")
@@ -138,9 +137,16 @@ def _fuentes_material(material_id):
 
 
 def _enriquecer_material(material):
+    """Completa origen/ubicación solo cuando la fila no ya identifica un origen."""
     copia = dict(material)
     if copia.get("id") is None:
         return copia
+
+    # Una fila elegida desde el selector ya identifica exactamente su origen.
+    # No debemos reemplazarlo por la lista global de fuentes del material.
+    if copia.get("_documento_item_id") is not None or copia.get("_documento_id") is not None:
+        return copia
+
     ubicaciones, origenes, observaciones = _fuentes_material(copia["id"])
     if ubicaciones:
         copia["_ubicaciones_fuente"] = ubicaciones
@@ -154,7 +160,6 @@ def _enriquecer_material(material):
 
 
 def _obtener_filas_origen(material):
-    """Expande un material global en sus orígenes físicos/documentales."""
     mid = material.get("id")
     if mid is None:
         return []
@@ -162,6 +167,7 @@ def _obtener_filas_origen(material):
         origenes = obtener_origenes_material(int(mid)) or []
     except Exception:
         origenes = []
+
     filas = []
     for origen in origenes:
         stock = float(origen.get("stock_disponible") or 0)
@@ -179,7 +185,7 @@ def _obtener_filas_origen(material):
 
 
 def _seleccionar_materiales_desde_general(material_inicial):
-    """Selector general manteniendo la interfaz simple y mostrando cada origen."""
+    """Selector general simple: cada fila representa un origen real del inventario."""
     import tkinter as tk
     from tkinter import ttk, messagebox, simpledialog
 
@@ -236,18 +242,18 @@ def _seleccionar_materiales_desde_general(material_inicial):
         origenes = _obtener_filas_origen(material)
         if origenes:
             filas_iniciales.extend(origenes)
-        else:
-            # Compatibilidad con materiales creados manualmente que todavía no
-            # tienen documento_item asociado: se conserva el stock global.
-            try:
-                stock = float(obtener_stock_general_material(material.get("id")) or 0)
-            except Exception:
-                stock = 0
-            if stock > 0:
-                fila = dict(material)
-                fila["_stock_origen"] = stock
-                fila["_origen_clave"] = f"global:{material.get('id')}"
-                filas_iniciales.append(fila)
+            continue
+
+        # Materiales creados manualmente pueden no tener documento_item.
+        try:
+            stock = float(obtener_stock_general_material(material.get("id")) or 0)
+        except Exception:
+            stock = 0
+        if stock > 0:
+            fila = dict(material)
+            fila["_stock_origen"] = stock
+            fila["_origen_clave"] = f"global:{material.get('id')}"
+            filas_iniciales.append(fila)
 
     for material in filas_iniciales:
         contador += 1
@@ -270,6 +276,7 @@ def _seleccionar_materiales_desde_general(material_inicial):
         if not seleccion:
             messagebox.showwarning("Materiales", "Seleccioná al menos un origen/material.", parent=ventana)
             return
+
         seleccionados = []
         for iid in seleccion:
             material = por_iid.get(iid)
@@ -279,6 +286,7 @@ def _seleccionar_materiales_desde_general(material_inicial):
             if stock <= 0:
                 messagebox.showwarning("Stock", f"'{_texto(material.get('material'))}' no tiene stock disponible.", parent=ventana)
                 return
+
             cantidad = simpledialog.askfloat(
                 "Cantidad a llevar",
                 f"Material: {_texto(material.get('material'))}\n"
@@ -293,10 +301,12 @@ def _seleccionar_materiales_desde_general(material_inicial):
             )
             if cantidad is None:
                 return
+
             copia = dict(material)
             copia["cantidad"] = cantidad
             copia["_stock_general"] = stock
             seleccionados.append(copia)
+
         resultado.extend(seleccionados)
         ventana.destroy()
 
@@ -308,15 +318,8 @@ def _seleccionar_materiales_desde_general(material_inicial):
     ttk.Button(botones, text="Generar con seleccionados", command=aceptar).pack(side="right", padx=(5, 0))
     ttk.Button(botones, text="Cancelar", command=cancelar).pack(side="right")
 
-    # La llamada actual desde main.py selecciona primero un material global.
-    # Lo ubicamos automáticamente en todas sus filas de origen.
-    if material_inicial and material_inicial.get("id") is not None:
-        mid = material_inicial.get("id")
-        for iid, fila in por_iid.items():
-            if fila.get("id") == mid:
-                tabla.selection_add(iid)
-                tabla.see(iid)
-
+    # No preseleccionamos automáticamente todos los orígenes de un material.
+    # El usuario decide exactamente de qué ubicación/documento sale cada unidad.
     ventana.wait_window()
     return resultado
 
@@ -334,8 +337,8 @@ def generar_relacion_transito(
     """Genera Excel/PDF y descuenta el stock retirado con trazabilidad."""
     materiales = list(materiales or [])
 
-    # main.py actualmente entrega un material global sin cantidad/origen.
-    # En ese caso abrimos el selector por origen sin cambiar la pantalla principal.
+    # main.py entrega actualmente un material global sin cantidad/origen.
+    # Abrimos aquí el selector por origen para mantener intacta la interfaz principal.
     if len(materiales) == 1 and not materiales[0].get("_documento_item_id"):
         materiales = _seleccionar_materiales_desde_general(materiales[0])
 
@@ -362,6 +365,7 @@ def generar_relacion_transito(
             raise RelacionTransitoError(
                 f"La cantidad a retirar debe ser mayor que cero para '{material.get('material') or material.get('codigo') or 'sin nombre'}'."
             )
+
         stock_limite = material.get("_stock_origen")
         if stock_limite is None:
             try:
@@ -372,6 +376,7 @@ def generar_relacion_transito(
                 ) from error
         else:
             stock_limite = float(stock_limite or 0)
+
         if cantidad > stock_limite + 1e-9:
             raise RelacionTransitoError(
                 f"Stock insuficiente para '{material.get('material') or material.get('codigo')}'. "
