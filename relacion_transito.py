@@ -64,24 +64,6 @@ def _preparar_fila(ws, fila: int, fila_modelo: int = 12) -> None:
     ws.row_dimensions[fila].height = ws.row_dimensions[fila_modelo].height
 
 
-def _observaciones_con_ubicacion(material: Mapping) -> str:
-    """Genera las observaciones de la relación sin copiar las observaciones del material.
-
-    Se conserva únicamente la información útil para identificar dónde se encuentra
-    el material y de qué inventario/documento proviene.
-    """
-    partes = []
-    ubicacion = _texto(material.get("ubicacion"))
-    archivo = _texto(material.get("archivo_origen"))
-
-    if ubicacion:
-        partes.append(f"Ubicación: {ubicacion}")
-    if archivo:
-        partes.append(f"Archivo: {archivo}")
-
-    return " | ".join(partes)
-
-
 def _buscar_rotulo(ws, textos, max_row=None, max_col=None):
     """Busca un rótulo de la plantilla por texto, sin asumir coordenadas."""
     textos = [t.upper() for t in textos]
@@ -145,8 +127,7 @@ def generar_relacion_transito(
     """Genera la Relación de Tránsito usando la plantilla oficial del proyecto.
 
     La fecha se carga automáticamente con la fecha del momento de generación.
-    El parámetro fecha se mantiene por compatibilidad con llamadas anteriores,
-    pero no permite reemplazar la fecha automática.
+    El campo Observaciones queda vacío y no incorpora información del material.
     """
     materiales = list(materiales or [])
     plantilla = Path(plantilla or PLANTILLA_RELACION_TRANSITO)
@@ -225,7 +206,7 @@ def generar_relacion_transito(
             4: _texto(material.get("marca")),
             5: _texto(material.get("numero_serie")),
             6: _texto(material.get("numero_parte")) or _texto(material.get("codigo")),
-            columna_obs: _observaciones_con_ubicacion(material),
+            columna_obs: "",
         }
 
         for columna, valor in valores.items():
@@ -245,7 +226,6 @@ def generar_relacion_transito(
         for columna in range(1, min(ws.max_column, 7) + 1):
             _asignar_valor_fila(ws, fila, columna, None)
 
-    # Se conservan los ajustes visuales que ya tenía la relación.
     ws.freeze_panes = "A12"
     ws.sheet_view.showGridLines = False
 
