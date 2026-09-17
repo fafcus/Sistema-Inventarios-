@@ -78,7 +78,15 @@ _new_func = '''def generar_relacion_transito_ui():
 '''
 
 _pattern = r'def generar_relacion_transito_ui\(\):.*?(?=\n# ={10,}\n)'
-_source, _count = re.subn(_pattern, _new_func.rstrip(), _source, count=1, flags=re.S)
+# Usar una función como reemplazo evita que re.sub interprete los \n del texto
+# como saltos de línea reales dentro de los f-strings.
+_source, _count = re.subn(
+    _pattern,
+    lambda _match: _new_func.rstrip(),
+    _source,
+    count=1,
+    flags=re.S,
+)
 if _count != 1:
     raise RuntimeError("No se encontró generar_relacion_transito_ui en main.py")
 
