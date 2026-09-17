@@ -29,6 +29,7 @@ PERMISOS = {
         "eliminar_material",
         "agregar_stock",
         "retirar_stock",
+        "generar_relacion_transito",
         "importar_word",
         "reescaneo_completo",
         "administrar_usuarios",
@@ -42,6 +43,7 @@ PERMISOS = {
         "eliminar_material",
         "agregar_stock",
         "retirar_stock",
+        "generar_relacion_transito",
         "importar_word",
         "reescaneo_completo",
     },
@@ -49,8 +51,6 @@ PERMISOS = {
         "ver_inventario",
         "ver_historial",
         "generar_reportes",
-        "agregar_stock",
-        "retirar_stock",
     },
 }
 
@@ -168,7 +168,6 @@ def solicitar_acceso(nombre, email, rol_solicitado):
     if not solicitud:
         raise ValueError("No se pudo registrar la solicitud de acceso.")
 
-    # Supabase puede devolver una lista para funciones que retornan TABLE/row.
     if isinstance(solicitud, list):
         if not solicitud:
             raise ValueError("No se pudo registrar la solicitud de acceso.")
