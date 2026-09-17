@@ -69,35 +69,62 @@ def _convertir_con_excel_windows(excel_path: Path, pdf_path: Path) -> Path | Non
     if os.name != "nt":
         return None
 
+    # Primera opción: pywin32, si está disponible.
     try:
         import win32com.client  # type: ignore
     except Exception:
+        win32com = None
+    else:
+        excel = None
+        libro = None
+        try:
+            excel = win32com.client.DispatchEx("Excel.Application")
+            excel.Visible = False
+            excel.DisplayAlerts = False
+            libro = excel.Workbooks.Open(str(excel_path.resolve()))
+            libro.ExportAsFixedFormat(0, str(pdf_path.resolve()))
+            if pdf_path.exists():
+                return pdf_path
+        except Exception:
+            pass
+        finally:
+            try:
+                if libro is not None:
+                    libro.Close(False)
+            except Exception:
+                pass
+            try:
+                if excel is not None:
+                    excel.Quit()
+            except Exception:
+                pass
+
+    # Segunda opción: PowerShell + COM de Excel, sin instalar pywin32.
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if not powershell:
         return None
 
-    excel = None
-    libro = None
+    script = (
+        "$ErrorActionPreference='Stop'; "
+        "$excel=New-Object -ComObject Excel.Application; "
+        "$excel.Visible=$false; $excel.DisplayAlerts=$false; "
+        f"$libro=$excel.Workbooks.Open('{str(excel_path.resolve()).replace(chr(39), chr(39)*2)}'); "
+        f"$libro.ExportAsFixedFormat(0,'{str(pdf_path.resolve()).replace(chr(39), chr(39)*2)}'); "
+        "$libro.Close($false); $excel.Quit();"
+    )
     try:
-        excel = win32com.client.DispatchEx("Excel.Application")
-        excel.Visible = False
-        excel.DisplayAlerts = False
-        libro = excel.Workbooks.Open(str(excel_path.resolve()))
-        libro.ExportAsFixedFormat(0, str(pdf_path.resolve()))
-        if not pdf_path.exists():
-            return None
-        return pdf_path
+        resultado = subprocess.run(
+            [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        if resultado.returncode == 0 and pdf_path.exists():
+            return pdf_path
     except Exception:
-        return None
-    finally:
-        try:
-            if libro is not None:
-                libro.Close(False)
-        except Exception:
-            pass
-        try:
-            if excel is not None:
-                excel.Quit()
-        except Exception:
-            pass
+        pass
+    return None
 
 
 def convertir_excel_a_pdf(excel_path: str | Path, pdf_path: str | Path | None = None) -> Path:
@@ -119,7 +146,7 @@ def convertir_excel_a_pdf(excel_path: str | Path, pdf_path: str | Path | None = 
 
     raise RelacionTransitoPDFError(
         "No se pudo convertir la relación a PDF. "
-        "Instalá LibreOffice o Microsoft Excel en esta PC."
+        "Se necesita LibreOffice o Microsoft Excel instalado en esta PC."
     )
 
 
@@ -169,7 +196,7 @@ def descontar_materiales_relacion(materiales, usuario=None, identificador_relaci
     aplicados = []
     try:
         for material_id, cantidad, stock, material in pendientes:
-            nuevo_stock = agregar_ajuste_stock(
+            agregar_ajuste_stock(
                 material_id,
                 -cantidad,
                 usuario=usuario,
