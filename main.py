@@ -1,14 +1,14 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from pathlib import Path
+from copy import deepcopy
 import threading
 import time
 import traceback
 
-from config import supabase
 from supabase_db import (
     probar_conexion, obtener_materiales, obtener_material, crear_material,
-    actualizar_material, agregar_ajuste_stock, actualizar_cantidad_documento_item,
+    actualizar_material, actualizar_cantidad_documento_item,
     obtener_movimientos, obtener_documentos, obtener_items_documento,
     crear_item_documento, buscar_material,
 )
@@ -78,8 +78,6 @@ def invalidar_cache():
 
 def cargar_datos_supabase():
     global cache_materiales, cache_documentos, cache_movimientos
-    # IMPORTANTE: ya no usamos obtener_inventario_general().
-    # La cantidad que se muestra sale exclusivamente del documento seleccionado.
     materiales = obtener_materiales() or []
     documentos = obtener_documentos() or []
     movimientos = obtener_movimientos(100) or []
@@ -115,8 +113,7 @@ def generar_firma_sincronizacion(materiales, documentos, movimientos):
 
 def actualizar_estadisticas(materiales):
     total = len(materiales)
-    con = 0
-    sin = 0
+    con = sin = 0
     total_cantidad = 0
     for m in materiales:
         try:
@@ -128,14 +125,10 @@ def actualizar_estadisticas(materiales):
             con += 1
         else:
             sin += 1
-    if lbl_total_materiales:
-        lbl_total_materiales.config(text=f"Materiales: {total}")
-    if lbl_con_stock:
-        lbl_con_stock.config(text=f"Con stock: {con}")
-    if lbl_sin_stock:
-        lbl_sin_stock.config(text=f"Sin stock: {sin}")
-    if lbl_cantidad_total:
-        lbl_cantidad_total.config(text=f"Cantidad total: {total_cantidad:g}")
+    if lbl_total_materiales: lbl_total_materiales.config(text=f"Materiales: {total}")
+    if lbl_con_stock: lbl_con_stock.config(text=f"Con stock: {con}")
+    if lbl_sin_stock: lbl_sin_stock.config(text=f"Sin stock: {sin}")
+    if lbl_cantidad_total: lbl_cantidad_total.config(text=f"Cantidad total: {total_cantidad:g}")
 
 
 def obtener_documento_actual():
@@ -161,76 +154,46 @@ def obtener_materiales_seleccionados():
     except Exception as error:
         print("Error obteniendo documento_items:", error)
         return []
-
     materiales = obtener_materiales_cache()
     por_id = {m.get("id"): m for m in materiales if m.get("id") is not None}
     resultado = []
-
     for item in items:
         mid = item.get("material_id")
         material = por_id.get(mid)
         if not material:
-            try:
-                material = obtener_material(mid)
-            except Exception:
-                material = None
-        if not material:
-            continue
-
+            try: material = obtener_material(mid)
+            except Exception: material = None
+        if not material: continue
         copia = dict(material)
-        # LA CANTIDAD REAL DEL INVENTARIO SALE DEL DOCUMENTO.
         copia["cantidad"] = item.get("cantidad", 0)
         copia["_documento_item_id"] = item.get("id")
         for campo in ("codigo", "material", "unidad", "categoria", "ubicacion", "observaciones"):
             if item.get(campo) is not None:
                 copia[campo] = item.get(campo)
         resultado.append(copia)
-
     return resultado
 
 
 def actualizar_tabla():
-    if tabla is None:
-        return
-    for x in tabla.get_children():
-        tabla.delete(x)
-
+    if tabla is None: return
+    for x in tabla.get_children(): tabla.delete(x)
     materiales = obtener_materiales_seleccionados()
     texto = limpiar_texto(entrada_busqueda.get()).lower() if entrada_busqueda else ""
     filtrados = []
-
     for m in materiales:
         if texto:
             combinado = " ".join(limpiar_texto(m.get(c)) for c in ("codigo", "material", "categoria", "ubicacion", "observaciones")).lower()
-            if texto not in combinado:
-                continue
+            if texto not in combinado: continue
         filtrados.append(m)
-
     for m in filtrados:
-        try:
-            cantidad = float(m.get("cantidad", 0) or 0)
-        except Exception:
-            cantidad = 0
+        try: cantidad = float(m.get("cantidad", 0) or 0)
+        except Exception: cantidad = 0
         estado, tag = (COLOR_STOCK, "stock") if cantidad > 0 else (COLOR_SIN_STOCK, "sin_stock")
-        tabla.insert(
-            "", "end", iid=str(m.get("id")),
-            values=(
-                m.get("codigo") or "",
-                m.get("material") or "",
-                formatear_numero(cantidad),
-                m.get("unidad") or "",
-                m.get("categoria") or "",
-                m.get("ubicacion") or "",
-                m.get("observaciones") or "",
-                estado,
-            ),
-            tags=(tag,),
-        )
+        tabla.insert("", "end", iid=str(m.get("id")), values=(m.get("codigo") or "", m.get("material") or "", formatear_numero(cantidad), m.get("unidad") or "", m.get("categoria") or "", m.get("ubicacion") or "", m.get("observaciones") or "", estado), tags=(tag,))
     actualizar_estadisticas(filtrados)
 
 
-def buscar(event=None):
-    actualizar_tabla()
+def buscar(event=None): actualizar_tabla()
 
 
 def obtener_material_seleccionado():
@@ -238,482 +201,347 @@ def obtener_material_seleccionado():
     if not sel:
         messagebox.showwarning("Selección", "Seleccioná un material primero.", parent=root)
         return None
-    try:
-        mid = int(sel[0])
-    except Exception:
-        return None
+    try: mid = int(sel[0])
+    except Exception: return None
     for m in obtener_materiales_seleccionados():
-        if m.get("id") == mid:
-            return m
-    try:
-        return obtener_material(mid)
-    except Exception:
-        return None
+        if m.get("id") == mid: return m
+    try: return obtener_material(mid)
+    except Exception: return None
 
 
 def obtener_item_documento(material_id):
     did = obtener_documento_id_actual()
-    if not did:
-        return None
-    try:
-        items = obtener_items_documento(did) or []
-    except Exception:
-        return None
+    if not did: return None
+    try: items = obtener_items_documento(did) or []
+    except Exception: return None
     for item in items:
         try:
-            if int(item.get("material_id", -1)) == int(material_id):
-                return item
-        except Exception:
-            pass
+            if int(item.get("material_id", -1)) == int(material_id): return item
+        except Exception: pass
     return None
 
 
 def actualizar_stock_documento(material_id, nueva_cantidad, tipo_movimiento=None, usuario="APP", observaciones=None):
     item = obtener_item_documento(material_id)
-    if item is None:
-        raise Exception("El material no pertenece al inventario seleccionado.")
-    return actualizar_cantidad_documento_item(
-        item["id"], nueva_cantidad,
-        usuario=usuario,
-        archivo_origen=inventario_seleccionado,
-        observaciones=observaciones,
-        documento_id=obtener_documento_id_actual(),
-    )
+    if item is None: raise Exception("El material no pertenece al inventario seleccionado.")
+    return actualizar_cantidad_documento_item(item["id"], nueva_cantidad, usuario=usuario, archivo_origen=inventario_seleccionado, observaciones=observaciones, documento_id=obtener_documento_id_actual())
 
 
 def agregar_stock():
     material = obtener_material_seleccionado()
-    if not material:
-        return
-
-    mid = material["id"]
-    nombre = material.get("material") or ""
-    unidad = material.get("unidad") or ""
-    codigo = material.get("codigo") or "-"
+    if not material: return
+    mid = material["id"]; nombre = material.get("material") or ""; unidad = material.get("unidad") or ""; codigo = material.get("codigo") or "-"
     item = obtener_item_documento(mid)
-    if item is None:
-        messagebox.showerror("Error", "El material no pertenece al inventario seleccionado.", parent=root)
-        return
-
+    if item is None: messagebox.showerror("Error", "El material no pertenece al inventario seleccionado.", parent=root); return
     stock = float(item.get("cantidad", 0) or 0)
-    cantidad = simpledialog.askfloat(
-        "Agregar stock",
-        f"Inventario: {inventario_seleccionado}\nMaterial: {nombre}\nCódigo: {codigo}\nStock actual: {formatear_numero(stock)} {unidad}\n\nCantidad a agregar:",
-        minvalue=0.0001,
-        parent=root,
-    )
-    if cantidad is None or cantidad <= 0:
-        return
-
+    cantidad = simpledialog.askfloat("Agregar stock", f"Inventario: {inventario_seleccionado}\nMaterial: {nombre}\nCódigo: {codigo}\nStock actual: {formatear_numero(stock)} {unidad}\n\nCantidad a agregar:", minvalue=0.0001, parent=root)
+    if cantidad is None or cantidad <= 0: return
     try:
-        nuevo = actualizar_stock_documento(
-            mid, stock + cantidad, "ENTRADA", "APP",
-            "Ingreso manual en " + inventario_seleccionado,
-        )
-        invalidar_cache()
-        actualizar_todo(True)
+        nuevo = actualizar_stock_documento(mid, stock + cantidad, "ENTRADA", "APP", "Ingreso manual en " + inventario_seleccionado)
+        invalidar_cache(); actualizar_todo(True)
         valor = nuevo.get("cantidad", stock + cantidad) if isinstance(nuevo, dict) else stock + cantidad
-        messagebox.showinfo(
-            "Stock actualizado",
-            f"Material: {nombre}\n\nStock anterior: {formatear_numero(stock)} {unidad}\nCantidad agregada: {formatear_numero(cantidad)} {unidad}\nStock nuevo: {formatear_numero(valor)} {unidad}",
-            parent=root,
-        )
+        messagebox.showinfo("Stock actualizado", f"Material: {nombre}\n\nStock anterior: {formatear_numero(stock)} {unidad}\nCantidad agregada: {formatear_numero(cantidad)} {unidad}\nStock nuevo: {formatear_numero(valor)} {unidad}", parent=root)
     except Exception as error:
-        traceback.print_exc()
-        messagebox.showerror("Error", f"No se pudo agregar stock:\n\n{error}", parent=root)
+        traceback.print_exc(); messagebox.showerror("Error", f"No se pudo agregar stock:\n\n{error}", parent=root)
 
 
 def retirar_stock():
     material = obtener_material_seleccionado()
-    if not material:
-        return
-
-    mid = material["id"]
-    nombre = material.get("material") or ""
-    unidad = material.get("unidad") or ""
-    codigo = material.get("codigo") or "-"
+    if not material: return
+    mid = material["id"]; nombre = material.get("material") or ""; unidad = material.get("unidad") or ""; codigo = material.get("codigo") or "-"
     item = obtener_item_documento(mid)
-    if item is None:
-        messagebox.showerror("Error", "El material no pertenece al inventario seleccionado.", parent=root)
-        return
-
+    if item is None: messagebox.showerror("Error", "El material no pertenece al inventario seleccionado.", parent=root); return
     stock = float(item.get("cantidad", 0) or 0)
-    cantidad = simpledialog.askfloat(
-        "Retirar stock",
-        f"Inventario: {inventario_seleccionado}\nMaterial: {nombre}\nCódigo: {codigo}\nStock actual: {formatear_numero(stock)} {unidad}\n\nCantidad a retirar:",
-        minvalue=0.0001,
-        parent=root,
-    )
-    if cantidad is None or cantidad <= 0:
-        return
+    cantidad = simpledialog.askfloat("Retirar stock", f"Inventario: {inventario_seleccionado}\nMaterial: {nombre}\nCódigo: {codigo}\nStock actual: {formatear_numero(stock)} {unidad}\n\nCantidad a retirar:", minvalue=0.0001, parent=root)
+    if cantidad is None or cantidad <= 0: return
     if cantidad > stock:
-        messagebox.showwarning(
-            "Stock insuficiente",
-            f"No podés retirar {formatear_numero(cantidad)} {unidad}.\n\nStock disponible: {formatear_numero(stock)} {unidad}",
-            parent=root,
-        )
-        return
-
+        messagebox.showwarning("Stock insuficiente", f"No podés retirar {formatear_numero(cantidad)} {unidad}.\n\nStock disponible: {formatear_numero(stock)} {unidad}", parent=root); return
     try:
-        nuevo = actualizar_stock_documento(
-            mid, stock - cantidad, "SALIDA", "APP",
-            "Retiro manual en " + inventario_seleccionado,
-        )
-        invalidar_cache()
-        actualizar_todo(True)
+        nuevo = actualizar_stock_documento(mid, stock - cantidad, "SALIDA", "APP", "Retiro manual en " + inventario_seleccionado)
+        invalidar_cache(); actualizar_todo(True)
         valor = nuevo.get("cantidad", stock - cantidad) if isinstance(nuevo, dict) else stock - cantidad
-        messagebox.showinfo(
-            "Retiro realizado",
-            f"Material: {nombre}\n\nStock anterior: {formatear_numero(stock)} {unidad}\nCantidad retirada: {formatear_numero(cantidad)} {unidad}\nStock nuevo: {formatear_numero(valor)} {unidad}",
-            parent=root,
-        )
+        messagebox.showinfo("Retiro realizado", f"Material: {nombre}\n\nStock anterior: {formatear_numero(stock)} {unidad}\nCantidad retirada: {formatear_numero(cantidad)} {unidad}\nStock nuevo: {formatear_numero(valor)} {unidad}", parent=root)
     except Exception as error:
-        traceback.print_exc()
-        messagebox.showerror("Error", f"No se pudo retirar stock:\n\n{error}", parent=root)
+        traceback.print_exc(); messagebox.showerror("Error", f"No se pudo retirar stock:\n\n{error}", parent=root)
+
+
+def _agregar_fila_word(documento, datos):
+    """Agrega físicamente una fila al Word seleccionado respetando las columnas de su tabla."""
+    try:
+        from docx import Document
+    except Exception as error:
+        raise Exception("Falta instalar python-docx. Ejecutá: pip install python-docx") from error
+
+    ruta = Path(str(documento.get("ruta") or ""))
+    if not ruta.exists():
+        raise Exception(f"No se encontró el archivo Word:\n{ruta}")
+
+    doc = Document(str(ruta))
+    objetivos = {"codigo", "código", "material", "cantidad", "unidad", "categoria", "categoría", "ubicacion", "ubicación", "observaciones", "obs", "stock", "existencia", "existencias", "cant", "cant."}
+
+    tabla_objetivo = None
+    mapa = None
+    for tabla_word in doc.tables:
+        if not tabla_word.rows:
+            continue
+        encabezados = [limpiar_texto(c.text).lower() for c in tabla_word.rows[0].cells]
+        mapa_tmp = {}
+        for i, encabezado in enumerate(encabezados):
+            if encabezado in ("codigo", "código"): mapa_tmp["codigo"] = i
+            elif encabezado == "material": mapa_tmp["material"] = i
+            elif encabezado in ("cantidad", "cant", "cant.", "stock", "existencia", "existencias"): mapa_tmp["cantidad"] = i
+            elif encabezado == "unidad": mapa_tmp["unidad"] = i
+            elif encabezado in ("categoria", "categoría"): mapa_tmp["categoria"] = i
+            elif encabezado in ("ubicacion", "ubicación"): mapa_tmp["ubicacion"] = i
+            elif encabezado in ("observaciones", "obs"): mapa_tmp["observaciones"] = i
+        if "material" in mapa_tmp and "cantidad" in mapa_tmp:
+            tabla_objetivo = tabla_word
+            mapa = mapa_tmp
+            break
+
+    if tabla_objetivo is None:
+        raise Exception("No encontré en el Word una tabla con las columnas Material y Cantidad.")
+
+    nueva_fila = tabla_objetivo.add_row()
+    if len(tabla_objetivo.rows) >= 2:
+        try:
+            fila_modelo = tabla_objetivo.rows[-2]
+            for origen, destino in zip(fila_modelo.cells, nueva_fila.cells):
+                destino._tc.get_or_add_tcPr()
+                for hijo in list(origen._tc.tcPr):
+                    destino._tc.tcPr.append(deepcopy(hijo))
+        except Exception:
+            pass
+
+    valores = {
+        "codigo": datos.get("codigo") or "",
+        "material": datos.get("material") or "",
+        "cantidad": formatear_numero(datos.get("cantidad", 0)),
+        "unidad": datos.get("unidad") or "",
+        "categoria": datos.get("categoria") or "",
+        "ubicacion": datos.get("ubicacion") or "",
+        "observaciones": datos.get("observaciones") or "",
+    }
+    for campo, indice in mapa.items():
+        if indice < len(nueva_fila.cells):
+            nueva_fila.cells[indice].text = valores.get(campo, "")
+
+    doc.save(str(ruta))
+    return ruta
 
 
 def nuevo_material():
-    if not inventario_seleccionado:
-        return
-    ventana = tk.Toplevel(root)
-    ventana.title("Nuevo material")
-    ventana.geometry("520x520")
-    ventana.transient(root)
-    ventana.grab_set()
+    if not inventario_seleccionado: return
+    ventana = tk.Toplevel(root); ventana.title("Nuevo material"); ventana.geometry("520x520"); ventana.transient(root); ventana.grab_set()
     campos = [("Código", "codigo"), ("Material", "material"), ("Cantidad", "cantidad"), ("Unidad", "unidad"), ("Categoría", "categoria"), ("Ubicación", "ubicacion"), ("Observaciones", "observaciones")]
-    entradas = {}
-    frame = ttk.Frame(ventana, padding=20)
-    frame.pack(fill="both", expand=True)
-
+    entradas = {}; frame = ttk.Frame(ventana, padding=20); frame.pack(fill="both", expand=True)
     for fila, (texto, clave) in enumerate(campos):
         ttk.Label(frame, text=texto).grid(row=fila, column=0, sticky="w", padx=5, pady=7)
-        e = ttk.Entry(frame)
-        e.grid(row=fila, column=1, sticky="ew", padx=5, pady=7)
-        entradas[clave] = e
+        e = ttk.Entry(frame); e.grid(row=fila, column=1, sticky="ew", padx=5, pady=7); entradas[clave] = e
     frame.columnconfigure(1, weight=1)
 
     def guardar():
+        global importacion_en_curso
         nombre = entradas["material"].get().strip()
-        if not nombre:
-            messagebox.showwarning("Datos", "El nombre del material es obligatorio.", parent=ventana)
-            return
-        try:
-            cantidad = float(entradas["cantidad"].get().strip().replace(",", ".") or 0)
-        except ValueError:
-            messagebox.showerror("Cantidad", "La cantidad debe ser numérica.", parent=ventana)
-            return
-        if cantidad < 0:
-            messagebox.showerror("Cantidad", "La cantidad no puede ser negativa.", parent=ventana)
-            return
-
+        if not nombre: messagebox.showwarning("Datos", "El nombre del material es obligatorio.", parent=ventana); return
+        try: cantidad = float(entradas["cantidad"].get().strip().replace(",", ".") or 0)
+        except ValueError: messagebox.showerror("Cantidad", "La cantidad debe ser numérica.", parent=ventana); return
+        if cantidad < 0: messagebox.showerror("Cantidad", "La cantidad no puede ser negativa.", parent=ventana); return
         datos = {k: entradas[k].get().strip() or None for k in ("codigo", "unidad", "categoria", "ubicacion", "observaciones")}
+        datos["material"] = nombre; datos["cantidad"] = cantidad
         try:
             if buscar_material(datos["codigo"], nombre, datos["categoria"], datos["ubicacion"]):
-                messagebox.showwarning("Material existente", "Ese material ya existe en la base de datos.", parent=ventana)
-                return
+                messagebox.showwarning("Material existente", "Ese material ya existe en la base de datos.", parent=ventana); return
+            documento = obtener_documento_actual()
+            if not documento: raise Exception("No se encontró el documento seleccionado.")
 
-            nuevo = crear_material(
-                datos["codigo"], nombre, 0, datos["unidad"], datos["categoria"],
-                datos["ubicacion"], datos["observaciones"], inventario_seleccionado,
-            )
-            if not nuevo:
-                raise Exception("No se pudo crear el material.")
+            # Bloqueamos el monitor de Word mientras la aplicación escribe la nueva fila.
+            with lock_importacion:
+                if importacion_en_curso:
+                    messagebox.showinfo("Importación", "Hay una importación de Word en curso. Esperá a que termine.", parent=ventana); return
+                importacion_en_curso = True
+            try:
+                # 1) El Word es la fuente física: primero agregamos la fila.
+                _agregar_fila_word(documento, datos)
+                # 2) Luego registramos el material y su item en Supabase.
+                nuevo = crear_material(datos["codigo"], nombre, 0, datos["unidad"], datos["categoria"], datos["ubicacion"], datos["observaciones"], inventario_seleccionado)
+                if not nuevo: raise Exception("No se pudo crear el material en la base de datos.")
+                if not crear_item_documento(documento["id"], nuevo["id"], cantidad, unidad=datos["unidad"], codigo=datos["codigo"], material=nombre, categoria=datos["categoria"], ubicacion=datos["ubicacion"], observaciones=datos["observaciones"]):
+                    raise Exception("No se pudo crear el item del inventario.")
+                try:
+                    from supabase_db import actualizar_documento
+                    actualizar_documento(documento["id"], Path(str(documento["ruta"])).stat().st_mtime)
+                except Exception:
+                    pass
+            finally:
+                importacion_en_curso = False
 
-            did = obtener_documento_id_actual()
-            if not did:
-                raise Exception("No se encontró el documento seleccionado.")
-            if not crear_item_documento(
-                did, nuevo["id"], cantidad,
-                unidad=datos["unidad"], codigo=datos["codigo"], material=nombre,
-                categoria=datos["categoria"], ubicacion=datos["ubicacion"],
-                observaciones=datos["observaciones"],
-            ):
-                raise Exception("No se pudo crear el item del inventario.")
-
-            invalidar_cache()
-            ventana.destroy()
-            actualizar_todo(True)
-            messagebox.showinfo("Material creado", f"Se agregó correctamente a {inventario_seleccionado}:\n\n{nombre}", parent=root)
+            invalidar_cache(); ventana.destroy(); actualizar_todo(True)
+            messagebox.showinfo("Material creado", f"Se agregó correctamente a {inventario_seleccionado}:\n\n{nombre}\nCantidad: {formatear_numero(cantidad)}", parent=root)
         except Exception as error:
-            traceback.print_exc()
-            messagebox.showerror("Error", f"No se pudo crear el material:\n\n{error}", parent=ventana)
+            traceback.print_exc(); messagebox.showerror("Error", f"No se pudo crear el material:\n\n{error}", parent=ventana)
 
     ttk.Button(frame, text="Guardar", command=guardar).grid(row=len(campos), column=0, columnspan=2, pady=20)
 
 
 def editar_material():
     material = obtener_material_seleccionado()
-    if not material:
-        return
-    ventana = tk.Toplevel(root)
-    ventana.title("Editar material")
-    ventana.geometry("520x500")
-    ventana.transient(root)
-    ventana.grab_set()
+    if not material: return
+    ventana = tk.Toplevel(root); ventana.title("Editar material"); ventana.geometry("520x500"); ventana.transient(root); ventana.grab_set()
     campos = [("Código", "codigo"), ("Material", "material"), ("Unidad", "unidad"), ("Categoría", "categoria"), ("Ubicación", "ubicacion"), ("Observaciones", "observaciones")]
-    entradas = {}
-    frame = ttk.Frame(ventana, padding=20)
-    frame.pack(fill="both", expand=True)
-
+    entradas = {}; frame = ttk.Frame(ventana, padding=20); frame.pack(fill="both", expand=True)
     for fila, (texto, clave) in enumerate(campos):
         ttk.Label(frame, text=texto).grid(row=fila, column=0, sticky="w", padx=5, pady=7)
-        e = ttk.Entry(frame)
-        e.grid(row=fila, column=1, sticky="ew", padx=5, pady=7)
-        e.insert(0, material.get(clave) or "")
-        entradas[clave] = e
+        e = ttk.Entry(frame); e.grid(row=fila, column=1, sticky="ew", padx=5, pady=7); e.insert(0, material.get(clave) or ""); entradas[clave] = e
     frame.columnconfigure(1, weight=1)
-
     def guardar():
         nombre = entradas["material"].get().strip()
-        if not nombre:
-            messagebox.showwarning("Datos", "El material no puede quedar vacío.", parent=ventana)
-            return
+        if not nombre: messagebox.showwarning("Datos", "El material no puede quedar vacío.", parent=ventana); return
         try:
-            if not actualizar_material(
-                material["id"],
-                codigo=entradas["codigo"].get().strip() or None,
-                material=nombre,
-                unidad=entradas["unidad"].get().strip() or None,
-                categoria=entradas["categoria"].get().strip() or None,
-                ubicacion=entradas["ubicacion"].get().strip() or None,
-                observaciones=entradas["observaciones"].get().strip() or None,
-            ):
-                raise Exception("No se pudo actualizar.")
-            invalidar_cache()
-            ventana.destroy()
-            actualizar_todo(True)
-        except Exception as error:
-            traceback.print_exc()
-            messagebox.showerror("Error", f"No se pudo modificar:\n\n{error}", parent=ventana)
-
+            if not actualizar_material(material["id"], codigo=entradas["codigo"].get().strip() or None, material=nombre, unidad=entradas["unidad"].get().strip() or None, categoria=entradas["categoria"].get().strip() or None, ubicacion=entradas["ubicacion"].get().strip() or None, observaciones=entradas["observaciones"].get().strip() or None): raise Exception("No se pudo actualizar.")
+            invalidar_cache(); ventana.destroy(); actualizar_todo(True)
+        except Exception as error: traceback.print_exc(); messagebox.showerror("Error", f"No se pudo modificar:\n\n{error}", parent=ventana)
     ttk.Button(frame, text="Guardar cambios", command=guardar).grid(row=len(campos), column=0, columnspan=2, pady=20)
 
 
 def actualizar_movimientos():
-    if tabla_movimientos is None:
-        return
-    for x in tabla_movimientos.get_children():
-        tabla_movimientos.delete(x)
-
+    if tabla_movimientos is None: return
+    for x in tabla_movimientos.get_children(): tabla_movimientos.delete(x)
     materiales = {m.get("id"): m for m in obtener_materiales_cache()}
     nombre_archivo = inventario_seleccionado or ""
-
     for mov in obtener_movimientos_cache():
-        # En cada inventario mostramos únicamente los movimientos de ese archivo.
-        if nombre_archivo and mov.get("archivo_origen") and mov.get("archivo_origen") != nombre_archivo:
-            continue
+        if nombre_archivo and mov.get("archivo_origen") and mov.get("archivo_origen") != nombre_archivo: continue
         m = materiales.get(mov.get("material_id"))
-        tabla_movimientos.insert(
-            "", "end",
-            values=(
-                mov.get("fecha") or "",
-                m.get("codigo") if m else "",
-                m.get("material") if m else "Material eliminado",
-                mov.get("tipo") or "",
-                formatear_numero(mov.get("cantidad", 0)),
-                formatear_numero(mov.get("stock_anterior", 0)),
-                formatear_numero(mov.get("stock_nuevo", 0)),
-                mov.get("usuario") or "",
-                mov.get("archivo_origen") or "",
-                mov.get("observaciones") or "",
-            ),
-        )
+        tabla_movimientos.insert("", "end", values=(mov.get("fecha") or "", m.get("codigo") if m else "", m.get("material") if m else "Material eliminado", mov.get("tipo") or "", formatear_numero(mov.get("cantidad", 0)), formatear_numero(mov.get("stock_anterior", 0)), formatear_numero(mov.get("stock_nuevo", 0)), mov.get("usuario") or "", mov.get("archivo_origen") or "", mov.get("observaciones") or ""))
 
 
 def actualizar_todo(forzar=False):
     global actualizacion_en_curso, firma_datos_sincronizados
     with lock_actualizacion:
-        if actualizacion_en_curso:
-            return
+        if actualizacion_en_curso: return
         actualizacion_en_curso = True
-
     def trabajo():
         global actualizacion_en_curso, firma_datos_sincronizados
         try:
-            if lbl_progreso:
-                root.after(0, lambda: lbl_progreso.config(text="⏳ Actualizando..."))
-            materiales, documentos, movimientos = cargar_datos_supabase()
-            firma_datos_sincronizados = generar_firma_sincronizacion(materiales, documentos, movimientos)
-
+            if lbl_progreso: root.after(0, lambda: lbl_progreso.config(text="⏳ Actualizando..."))
+            materiales, documentos, movimientos = cargar_datos_supabase(); firma_datos_sincronizados = generar_firma_sincronizacion(materiales, documentos, movimientos)
             def refrescar():
                 global actualizacion_en_curso
                 try:
-                    refrescar_pantalla_seleccion()
-                    actualizar_tabla()
-                    actualizar_movimientos()
-                    if lbl_estado:
-                        lbl_estado.config(text="🟢 Sincronizado")
-                    if lbl_progreso:
-                        lbl_progreso.config(text="✓ Actualizado")
+                    refrescar_pantalla_seleccion(); actualizar_tabla(); actualizar_movimientos()
+                    if lbl_estado: lbl_estado.config(text="🟢 Sincronizado")
+                    if lbl_progreso: lbl_progreso.config(text="✓ Actualizado")
                 finally:
-                    with lock_actualizacion:
-                        actualizacion_en_curso = False
-
+                    with lock_actualizacion: actualizacion_en_curso = False
             root.after(0, refrescar)
-        except Exception as error:
+        except Exception:
             traceback.print_exc()
             def fallo():
                 global actualizacion_en_curso
-                with lock_actualizacion:
-                    actualizacion_en_curso = False
-                if lbl_estado:
-                    lbl_estado.config(text="🔴 Sin conexión")
-                if lbl_progreso:
-                    lbl_progreso.config(text="Error al actualizar")
+                with lock_actualizacion: actualizacion_en_curso = False
+                if lbl_estado: lbl_estado.config(text="🔴 Sin conexión")
+                if lbl_progreso: lbl_progreso.config(text="Error al actualizar")
             root.after(0, fallo)
-
     threading.Thread(target=trabajo, daemon=True).start()
 
 
 def sincronizar_automaticamente():
     global sincronizacion_en_curso, firma_datos_sincronizados, cache_materiales, cache_documentos, cache_movimientos
-    if root is None or importacion_en_curso or pausar_sincronizacion:
-        return
+    if root is None or importacion_en_curso or pausar_sincronizacion: return
     with lock_sincronizacion:
-        if sincronizacion_en_curso:
-            return
+        if sincronizacion_en_curso: return
         sincronizacion_en_curso = True
-
     def trabajo():
         global sincronizacion_en_curso, firma_datos_sincronizados, cache_materiales, cache_documentos, cache_movimientos
         try:
             with lock_actualizacion:
-                if actualizacion_en_curso:
-                    return
-            materiales = obtener_materiales() or []
-            documentos = obtener_documentos() or []
-            movimientos = obtener_movimientos(100) or []
-            firma = generar_firma_sincronizacion(materiales, documentos, movimientos)
-            cambio = firma_datos_sincronizados is None or firma != firma_datos_sincronizados
-            firma_datos_sincronizados = firma
+                if actualizacion_en_curso: return
+            materiales = obtener_materiales() or []; documentos = obtener_documentos() or []; movimientos = obtener_movimientos(100) or []
+            firma = generar_firma_sincronizacion(materiales, documentos, movimientos); cambio = firma_datos_sincronizados is None or firma != firma_datos_sincronizados; firma_datos_sincronizados = firma
             if cambio:
-                with cache_lock:
-                    cache_materiales = materiales
-                    cache_documentos = documentos
-                    cache_movimientos = movimientos
+                with cache_lock: cache_materiales, cache_documentos, cache_movimientos = materiales, documentos, movimientos
                 root.after(0, actualizar_interfaz_por_sincronizacion)
-            else:
-                root.after(0, lambda: actualizar_estado_sync(True, False))
+            else: root.after(0, lambda: actualizar_estado_sync(True, False))
         except Exception as error:
-            print("❌ Error en sincronización automática:", error)
-            traceback.print_exc()
-            root.after(0, lambda: actualizar_estado_sync(False, False))
+            print("❌ Error en sincronización automática:", error); traceback.print_exc(); root.after(0, lambda: actualizar_estado_sync(False, False))
         finally:
-            with lock_sincronizacion:
-                sincronizacion_en_curso = False
-
+            with lock_sincronizacion: sincronizacion_en_curso = False
     threading.Thread(target=trabajo, daemon=True).start()
 
 
 def actualizar_interfaz_por_sincronizacion():
     try:
-        refrescar_pantalla_seleccion()
-        actualizar_tabla()
-        actualizar_movimientos()
-        if lbl_estado:
-            lbl_estado.config(text="🟢 Sincronizado")
-        if lbl_progreso:
-            lbl_progreso.config(text="🔄 Cambio detectado — sincronizado")
-    except Exception:
-        traceback.print_exc()
+        refrescar_pantalla_seleccion(); actualizar_tabla(); actualizar_movimientos()
+        if lbl_estado: lbl_estado.config(text="🟢 Sincronizado")
+        if lbl_progreso: lbl_progreso.config(text="🔄 Cambio detectado — sincronizado")
+    except Exception: traceback.print_exc()
 
 
 def actualizar_estado_sync(conectado, hubo_cambio):
-    if lbl_estado:
-        lbl_estado.config(text="🟢 Sincronizado" if conectado else "🔴 Sin conexión")
-    if hubo_cambio and lbl_progreso:
-        lbl_progreso.config(text="🔄 Datos sincronizados")
+    if lbl_estado: lbl_estado.config(text="🟢 Sincronizado" if conectado else "🔴 Sin conexión")
+    if hubo_cambio and lbl_progreso: lbl_progreso.config(text="🔄 Datos sincronizados")
 
 
 def monitor_sincronizacion():
     print("🔄 Monitor de sincronización iniciado.")
     while True:
-        try:
-            sincronizar_automaticamente()
-        except Exception:
-            traceback.print_exc()
+        try: sincronizar_automaticamente()
+        except Exception: traceback.print_exc()
         time.sleep(INTERVALO_SINCRONIZACION / 1000)
 
 
 def ejecutar_importacion_word(reescaneo_completo=False):
     global importacion_en_curso, pausar_sincronizacion, firma_datos_sincronizados, cache_materiales, cache_documentos, cache_movimientos
     with lock_importacion:
-        if importacion_en_curso:
-            return
+        if importacion_en_curso: return
         importacion_en_curso = True
     pausar_sincronizacion = True
-    if lbl_progreso:
-        lbl_progreso.config(text="⏳ Importando documentos Word...")
-    if lbl_estado:
-        lbl_estado.config(text="🟡 Importando Word...")
-
+    if lbl_progreso: lbl_progreso.config(text="⏳ Importando documentos Word...")
+    if lbl_estado: lbl_estado.config(text="🟡 Importando Word...")
     def trabajo():
         global importacion_en_curso, pausar_sincronizacion, firma_datos_sincronizados, cache_materiales, cache_documentos, cache_movimientos
         resultado = None
         try:
-            resultado = importar_word.importar_todos(reescaneo_completo=reescaneo_completo)
-            invalidar_cache()
-            materiales = obtener_materiales() or []
-            documentos = obtener_documentos() or []
-            movimientos = obtener_movimientos(100) or []
-            with cache_lock:
-                cache_materiales = materiales
-                cache_documentos = documentos
-                cache_movimientos = movimientos
-            firma_datos_sincronizados = generar_firma_sincronizacion(materiales, documentos, movimientos)
-            print("RESULTADO:", resultado)
+            resultado = importar_word.importar_todos(reescaneo_completo=reescaneo_completo); invalidar_cache()
+            materiales = obtener_materiales() or []; documentos = obtener_documentos() or []; movimientos = obtener_movimientos(100) or []
+            with cache_lock: cache_materiales, cache_documentos, cache_movimientos = materiales, documentos, movimientos
+            firma_datos_sincronizados = generar_firma_sincronizacion(materiales, documentos, movimientos); print("RESULTADO:", resultado)
         except Exception as error:
-            traceback.print_exc()
-            root.after(0, lambda error=error: messagebox.showerror("Error", f"Ocurrió un error durante la importación:\n\n{error}", parent=root))
+            traceback.print_exc(); root.after(0, lambda error=error: messagebox.showerror("Error", f"Ocurrió un error durante la importación:\n\n{error}", parent=root))
         finally:
-            pausar_sincronizacion = False
-            importacion_en_curso = False
-            root.after(0, actualizar_interfaz_por_sincronizacion)
-            if resultado is not None:
-                root.after(150, lambda: mostrar_resultado_importacion(resultado))
-
+            pausar_sincronizacion = False; importacion_en_curso = False; root.after(0, actualizar_interfaz_por_sincronizacion)
+            if resultado is not None: root.after(150, lambda: mostrar_resultado_importacion(resultado))
     threading.Thread(target=trabajo, daemon=True).start()
 
 
 def construir_mensaje_importacion(resultado):
-    if not isinstance(resultado, dict):
-        return str(resultado)
+    if not isinstance(resultado, dict): return str(resultado)
     campos = [("nuevos", "Nuevos"), ("modificados", "Modificados"), ("actualizados", "Actualizados"), ("sin_cambios", "Sin cambios"), ("eliminados", "Eliminados"), ("vacios", "Vacíos"), ("filas", "Filas procesadas"), ("items", "Items"), ("errores", "Errores")]
     return "\n".join(f"{n}: {resultado.get(k, 0)}" for k, n in campos if k in resultado) or str(resultado)
 
 
 def mostrar_resultado_importacion(resultado):
-    if lbl_progreso:
-        lbl_progreso.config(text="✓ Word sincronizado")
+    if lbl_progreso: lbl_progreso.config(text="✓ Word sincronizado")
     messagebox.showinfo("Importación finalizada", construir_mensaje_importacion(resultado), parent=root)
 
 
 def importar_word_manual():
-    if importacion_en_curso:
-        messagebox.showinfo("Importación", "Ya hay una importación en curso.", parent=root)
-        return
+    if importacion_en_curso: messagebox.showinfo("Importación", "Ya hay una importación en curso.", parent=root); return
     ejecutar_importacion_word(False)
 
 
 def reescaneo_completo():
-    if importacion_en_curso:
-        messagebox.showinfo("Importación", "Ya hay una importación en curso.", parent=root)
-        return
-    if not messagebox.askyesno("Reescaneo completo", "Se van a revisar nuevamente todos los archivos Word.\n\nEsto puede tardar unos minutos.\n\n¿Continuar?", parent=root):
-        return
+    if importacion_en_curso: messagebox.showinfo("Importación", "Ya hay una importación en curso.", parent=root); return
+    if not messagebox.askyesno("Reescaneo completo", "Se van a revisar nuevamente todos los archivos Word.\n\nEsto puede tardar unos minutos.\n\n¿Continuar?", parent=root): return
     ejecutar_importacion_word(True)
 
 
 def obtener_estado_archivos_word():
-    estado = {}
-    CARPETA_DOCUMENTOS.mkdir(exist_ok=True)
+    estado = {}; CARPETA_DOCUMENTOS.mkdir(exist_ok=True)
     for ruta in CARPETA_DOCUMENTOS.glob("*.docx"):
-        if ruta.name.startswith("~$"):
-            continue
-        try:
-            estado[str(ruta.resolve())] = ruta.stat().st_mtime
-        except Exception:
-            pass
+        if ruta.name.startswith("~$"): continue
+        try: estado[str(ruta.resolve())] = ruta.stat().st_mtime
+        except Exception: pass
     return estado
 
 
@@ -725,212 +553,94 @@ def monitor_word():
             nuevo = obtener_estado_archivos_word()
             if nuevo != estado_archivos_word:
                 estado_archivos_word = nuevo
-                if not importacion_en_curso:
-                    ejecutar_importacion_word(False)
-        except Exception:
-            traceback.print_exc()
+                if not importacion_en_curso: ejecutar_importacion_word(False)
+        except Exception: traceback.print_exc()
         time.sleep(INTERVALO_MONITOR / 1000)
 
 
 def aplicar_estilo():
     estilo = ttk.Style()
-    try:
-        estilo.theme_use("clam")
-    except Exception:
-        pass
-    estilo.configure(".", font=("Segoe UI", 10))
-    estilo.configure("TFrame", background=COLOR_FONDO)
-    estilo.configure("TLabel", background=COLOR_FONDO, foreground=COLOR_TEXTO)
-    estilo.configure("Title.TLabel", background=COLOR_AZUL_OSCURO, foreground="white", font=("Segoe UI", 18, "bold"))
-    estilo.configure("Subtitle.TLabel", background=COLOR_AZUL_OSCURO, foreground="#dce8f1", font=("Segoe UI", 9))
-    estilo.configure("TButton", padding=(12, 7), font=("Segoe UI", 9, "bold"))
-    estilo.configure("Treeview", background="white", foreground=COLOR_TEXTO, fieldbackground="white", rowheight=30, font=("Segoe UI", 10), borderwidth=0)
-    estilo.configure("Treeview.Heading", background=COLOR_AZUL_OSCURO, foreground="white", font=("Segoe UI", 10, "bold"), padding=7)
-    estilo.map("Treeview", background=[("selected", COLOR_AZUL)], foreground=[("selected", "white")])
+    try: estilo.theme_use("clam")
+    except Exception: pass
+    estilo.configure(".", font=("Segoe UI", 10)); estilo.configure("TFrame", background=COLOR_FONDO); estilo.configure("TLabel", background=COLOR_FONDO, foreground=COLOR_TEXTO)
+    estilo.configure("Title.TLabel", background=COLOR_AZUL_OSCURO, foreground="white", font=("Segoe UI", 18, "bold")); estilo.configure("Subtitle.TLabel", background=COLOR_AZUL_OSCURO, foreground="#dce8f1", font=("Segoe UI", 9)); estilo.configure("TButton", padding=(12, 7), font=("Segoe UI", 9, "bold")); estilo.configure("Treeview", background="white", foreground=COLOR_TEXTO, fieldbackground="white", rowheight=30, font=("Segoe UI", 10), borderwidth=0); estilo.configure("Treeview.Heading", background=COLOR_AZUL_OSCURO, foreground="white", font=("Segoe UI", 10, "bold"), padding=7); estilo.map("Treeview", background=[("selected", COLOR_AZUL)], foreground=[("selected", "white")])
 
 
 def crear_cabecera():
-    cab = tk.Frame(root, bg=COLOR_AZUL_OSCURO, height=75)
-    cab.pack(fill="x")
-    cab.pack_propagate(False)
-    tit = tk.Frame(cab, bg=COLOR_AZUL_OSCURO)
-    tit.pack(side="left", padx=20)
-    ttk.Label(tit, text="⚓ INVENTARIO MATERIAL NAVAL", style="Title.TLabel").pack(anchor="w")
-    ttk.Label(tit, text="Sistema de gestión y control de material", style="Subtitle.TLabel").pack(anchor="w")
-    est = tk.Frame(cab, bg=COLOR_AZUL_OSCURO)
-    est.pack(side="right", padx=20)
-    global lbl_estado
-    lbl_estado = tk.Label(est, text="🟡 Conectando...", bg=COLOR_AZUL_OSCURO, fg="white", font=("Segoe UI", 10, "bold"))
-    lbl_estado.pack(side="right")
+    cab = tk.Frame(root, bg=COLOR_AZUL_OSCURO, height=75); cab.pack(fill="x"); cab.pack_propagate(False); tit = tk.Frame(cab, bg=COLOR_AZUL_OSCURO); tit.pack(side="left", padx=20)
+    ttk.Label(tit, text="⚓ INVENTARIO MATERIAL NAVAL", style="Title.TLabel").pack(anchor="w"); ttk.Label(tit, text="Sistema de gestión y control de material", style="Subtitle.TLabel").pack(anchor="w")
+    est = tk.Frame(cab, bg=COLOR_AZUL_OSCURO); est.pack(side="right", padx=20); global lbl_estado; lbl_estado = tk.Label(est, text="🟡 Conectando...", bg=COLOR_AZUL_OSCURO, fg="white", font=("Segoe UI", 10, "bold")); lbl_estado.pack(side="right")
 
 
 def seleccionar_inventario(nombre):
     global inventario_seleccionado
     inventario_seleccionado = nombre
-    entrada_busqueda.delete(0, tk.END) if entrada_busqueda else None
+    if entrada_busqueda: entrada_busqueda.delete(0, tk.END)
     construir_pantalla_inventario()
 
 
 def refrescar_pantalla_seleccion():
-    if marco_selector is None or not marco_selector.winfo_exists():
-        return
-    for widget in marco_selector.winfo_children():
-        widget.destroy()
+    if marco_selector is None or not marco_selector.winfo_exists(): return
+    for widget in marco_selector.winfo_children(): widget.destroy()
     construir_opciones_documentos(marco_selector)
 
 
 def construir_opciones_documentos(parent):
     documentos = [d for d in obtener_documentos_cache() if d.get("nombre")]
-    ttk.Label(parent, text="Seleccioná el inventario", font=("Segoe UI", 15, "bold")).pack(pady=(20, 5))
-    ttk.Label(parent, text="Cada archivo Word administra su propio stock.", foreground=COLOR_TEXTO_SECUNDARIO).pack(pady=(0, 18))
-
-    cont = tk.Frame(parent, bg=COLOR_FONDO)
-    cont.pack(fill="both", expand=True, padx=40, pady=10)
-
+    ttk.Label(parent, text="Seleccioná el inventario", font=("Segoe UI", 15, "bold")).pack(pady=(20, 5)); ttk.Label(parent, text="Cada archivo Word administra su propio stock.", foreground=COLOR_TEXTO_SECUNDARIO).pack(pady=(0, 18))
+    cont = tk.Frame(parent, bg=COLOR_FONDO); cont.pack(fill="both", expand=True, padx=40, pady=10)
     if not documentos:
-        ttk.Label(cont, text="No se encontraron archivos Word en la carpeta documentos.", font=("Segoe UI", 11)).pack(pady=40)
-        return
-
+        ttk.Label(cont, text="No se encontraron archivos Word en la carpeta documentos.", font=("Segoe UI", 11)).pack(pady=40); return
     columnas = 2
     for i, doc in enumerate(documentos):
-        nombre = doc.get("nombre")
-        tarjeta = tk.Frame(cont, bg=COLOR_PANEL, highlightbackground=COLOR_BORDE, highlightthickness=1, padx=18, pady=15)
-        tarjeta.grid(row=i // columnas, column=i % columnas, sticky="nsew", padx=10, pady=10)
-        cont.grid_columnconfigure(i % columnas, weight=1)
-        cont.grid_rowconfigure(i // columnas, weight=1)
-        tk.Label(tarjeta, text="📄", bg=COLOR_PANEL, fg=COLOR_AZUL, font=("Segoe UI", 24)).pack(side="left", padx=(0, 15))
-        info = tk.Frame(tarjeta, bg=COLOR_PANEL)
-        info.pack(side="left", fill="x", expand=True)
-        tk.Label(info, text=nombre, bg=COLOR_PANEL, fg=COLOR_TEXTO, font=("Segoe UI", 11, "bold"), anchor="w").pack(fill="x")
-        tk.Label(info, text="Abrir inventario", bg=COLOR_PANEL, fg=COLOR_TEXTO_SECUNDARIO, font=("Segoe UI", 9), anchor="w").pack(fill="x", pady=(2, 8))
-        ttk.Button(info, text="Abrir", command=lambda n=nombre: seleccionar_inventario(n)).pack(anchor="w")
+        nombre = doc.get("nombre"); tarjeta = tk.Frame(cont, bg=COLOR_PANEL, highlightbackground=COLOR_BORDE, highlightthickness=1, padx=18, pady=15); tarjeta.grid(row=i // columnas, column=i % columnas, sticky="nsew", padx=10, pady=10); cont.grid_columnconfigure(i % columnas, weight=1); cont.grid_rowconfigure(i // columnas, weight=1)
+        tk.Label(tarjeta, text="📄", bg=COLOR_PANEL, fg=COLOR_AZUL, font=("Segoe UI", 24)).pack(side="left", padx=(0, 15)); info = tk.Frame(tarjeta, bg=COLOR_PANEL); info.pack(side="left", fill="x", expand=True); tk.Label(info, text=nombre, bg=COLOR_PANEL, fg=COLOR_TEXTO, font=("Segoe UI", 11, "bold"), anchor="w").pack(fill="x"); tk.Label(info, text="Abrir inventario", bg=COLOR_PANEL, fg=COLOR_TEXTO_SECUNDARIO, font=("Segoe UI", 9), anchor="w").pack(fill="x", pady=(2, 8)); ttk.Button(info, text="Abrir", command=lambda n=nombre: seleccionar_inventario(n)).pack(anchor="w")
 
 
 def mostrar_pantalla_seleccion():
     global marco_selector, marco_contenido
-    if marco_contenido is not None:
-        marco_contenido.pack_forget()
-    if marco_selector is not None:
-        marco_selector.destroy()
-    marco_selector = tk.Frame(root, bg=COLOR_FONDO)
-    marco_selector.pack(fill="both", expand=True)
-    construir_opciones_documentos(marco_selector)
+    if marco_contenido is not None: marco_contenido.pack_forget()
+    if marco_selector is not None: marco_selector.destroy()
+    marco_selector = tk.Frame(root, bg=COLOR_FONDO); marco_selector.pack(fill="both", expand=True); construir_opciones_documentos(marco_selector)
 
 
 def volver_a_seleccion():
     global inventario_seleccionado
-    inventario_seleccionado = None
-    mostrar_pantalla_seleccion()
+    inventario_seleccionado = None; mostrar_pantalla_seleccion()
 
 
 def construir_pantalla_inventario():
-    global marco_contenido, marco_selector, tabla, tabla_movimientos, entrada_busqueda
-    global lbl_total_materiales, lbl_con_stock, lbl_sin_stock, lbl_cantidad_total, lbl_progreso
-
-    if marco_selector is not None:
-        marco_selector.destroy()
-        marco_selector = None
-
-    if marco_contenido is not None:
-        marco_contenido.destroy()
-
-    marco_contenido = tk.Frame(root, bg=COLOR_FONDO)
-    marco_contenido.pack(fill="both", expand=True)
-
-    fs = ttk.Frame(marco_contenido, padding=(15, 10))
-    fs.pack(fill="x")
-    ttk.Label(fs, text="Inventario:", font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
-    ttk.Label(fs, text=inventario_seleccionado or "", font=("Segoe UI", 10, "bold"), foreground=COLOR_AZUL).pack(side="left")
-    ttk.Button(fs, text="📂 Cambiar inventario", command=volver_a_seleccion).pack(side="right")
-
-    stats = tk.Frame(marco_contenido, bg=COLOR_AZUL_CLARO, highlightbackground=COLOR_BORDE, highlightthickness=1)
-    stats.pack(fill="x", padx=15, pady=(0, 7))
-    def stat(t):
-        return tk.Label(stats, text=t, bg=COLOR_AZUL_CLARO, fg=COLOR_TEXTO, font=("Segoe UI", 10, "bold"), padx=15, pady=8)
-    lbl_total_materiales = stat("Materiales: 0"); lbl_total_materiales.pack(side="left")
-    lbl_con_stock = stat("Con stock: 0"); lbl_con_stock.pack(side="left")
-    lbl_sin_stock = stat("Sin stock: 0"); lbl_sin_stock.pack(side="left")
-    lbl_cantidad_total = stat("Cantidad total: 0"); lbl_cantidad_total.pack(side="left")
-
-    fb = ttk.Frame(marco_contenido, padding=(15, 5))
-    fb.pack(fill="x")
-    ttk.Label(fb, text="Buscar:", font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 7))
-    entrada_busqueda = ttk.Entry(fb)
-    entrada_busqueda.pack(side="left", fill="x", expand=True)
-    entrada_busqueda.bind("<KeyRelease>", buscar)
-
-    buttons = ttk.Frame(marco_contenido, padding=(15, 5))
-    buttons.pack(fill="x")
-    for text, cmd in (("➕ Nuevo", nuevo_material), ("✏️ Editar", editar_material), ("📥 Agregar", agregar_stock), ("📤 Retirar", retirar_stock), ("🔄 Actualizar", lambda: actualizar_todo(True))):
-        ttk.Button(buttons, text=text, command=cmd).pack(side="left", padx=3)
-    ttk.Button(buttons, text="📄 Importar Word", command=importar_word_manual).pack(side="right", padx=3)
-    ttk.Button(buttons, text="🧹 Reescaneo completo", command=reescaneo_completo).pack(side="right", padx=3)
-
-    lbl_progreso = ttk.Label(marco_contenido, text="Listo", foreground=COLOR_TEXTO_SECUNDARIO)
-    lbl_progreso.pack(anchor="w", padx=18, pady=(2, 2))
-
-    ft = ttk.Frame(marco_contenido, padding=(15, 3))
-    ft.pack(fill="both", expand=True)
-    cols = ("codigo", "material", "cantidad", "unidad", "categoria", "ubicacion", "observaciones", "estado")
-    tabla = ttk.Treeview(ft, columns=cols, show="headings", selectmode="browse")
-    heads = {"codigo":"Código", "material":"Material", "cantidad":"Cantidad", "unidad":"Unidad", "categoria":"Categoría", "ubicacion":"Ubicación", "observaciones":"Observaciones", "estado":"Estado"}
-    widths = {"codigo":150, "material":300, "cantidad":100, "unidad":100, "categoria":150, "ubicacion":180, "observaciones":300, "estado":150}
-    for c in cols:
-        tabla.heading(c, text=heads[c]); tabla.column(c, width=widths[c], minwidth=70)
-    sv = ttk.Scrollbar(ft, orient="vertical", command=tabla.yview)
-    sh = ttk.Scrollbar(ft, orient="horizontal", command=tabla.xview)
-    tabla.configure(yscrollcommand=sv.set, xscrollcommand=sh.set)
-    tabla.grid(row=0, column=0, sticky="nsew"); sv.grid(row=0, column=1, sticky="ns"); sh.grid(row=1, column=0, sticky="ew")
-    ft.rowconfigure(0, weight=1); ft.columnconfigure(0, weight=1)
-    tabla.tag_configure("stock", background=COLOR_STOCK_FONDO); tabla.tag_configure("sin_stock", background=COLOR_SIN_STOCK_FONDO)
-
-    ttk.Label(marco_contenido, text="Últimos movimientos", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=15, pady=(8, 3))
-    fm = ttk.Frame(marco_contenido, height=180)
-    fm.pack(fill="x", padx=15, pady=(0, 10)); fm.pack_propagate(False)
-    mc = ("fecha", "codigo", "material", "tipo", "cantidad", "anterior", "nuevo", "usuario", "archivo", "observaciones")
-    tabla_movimientos = ttk.Treeview(fm, columns=mc, show="headings")
-    mh = {"fecha":"Fecha", "codigo":"Código", "material":"Material", "tipo":"Tipo", "cantidad":"Cantidad", "anterior":"Stock anterior", "nuevo":"Stock nuevo", "usuario":"Usuario", "archivo":"Archivo", "observaciones":"Observaciones"}
-    mw = {"fecha":160, "codigo":130, "material":250, "tipo":100, "cantidad":100, "anterior":110, "nuevo":110, "usuario":100, "archivo":250, "observaciones":250}
-    for c in mc:
-        tabla_movimientos.heading(c, text=mh[c]); tabla_movimientos.column(c, width=mw[c], minwidth=80)
-    smv = ttk.Scrollbar(fm, orient="vertical", command=tabla_movimientos.yview)
-    smh = ttk.Scrollbar(fm, orient="horizontal", command=tabla_movimientos.xview)
-    tabla_movimientos.configure(yscrollcommand=smv.set, xscrollcommand=smh.set)
-    tabla_movimientos.grid(row=0, column=0, sticky="nsew"); smv.grid(row=0, column=1, sticky="ns"); smh.grid(row=1, column=0, sticky="ew")
-    fm.rowconfigure(0, weight=1); fm.columnconfigure(0, weight=1)
-
-    actualizar_tabla()
-    actualizar_movimientos()
+    global marco_contenido, marco_selector, tabla, tabla_movimientos, entrada_busqueda, lbl_total_materiales, lbl_con_stock, lbl_sin_stock, lbl_cantidad_total, lbl_progreso
+    if marco_selector is not None: marco_selector.destroy(); marco_selector = None
+    if marco_contenido is not None: marco_contenido.destroy()
+    marco_contenido = tk.Frame(root, bg=COLOR_FONDO); marco_contenido.pack(fill="both", expand=True)
+    fs = ttk.Frame(marco_contenido, padding=(15, 10)); fs.pack(fill="x"); ttk.Label(fs, text="Inventario:", font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8)); ttk.Label(fs, text=inventario_seleccionado or "", font=("Segoe UI", 10, "bold"), foreground=COLOR_AZUL).pack(side="left"); ttk.Button(fs, text="📂 Cambiar inventario", command=volver_a_seleccion).pack(side="right")
+    stats = tk.Frame(marco_contenido, bg=COLOR_AZUL_CLARO, highlightbackground=COLOR_BORDE, highlightthickness=1); stats.pack(fill="x", padx=15, pady=(0, 7))
+    def stat(t): return tk.Label(stats, text=t, bg=COLOR_AZUL_CLARO, fg=COLOR_TEXTO, font=("Segoe UI", 10, "bold"), padx=15, pady=8)
+    lbl_total_materiales=stat("Materiales: 0"); lbl_total_materiales.pack(side="left"); lbl_con_stock=stat("Con stock: 0"); lbl_con_stock.pack(side="left"); lbl_sin_stock=stat("Sin stock: 0"); lbl_sin_stock.pack(side="left"); lbl_cantidad_total=stat("Cantidad total: 0"); lbl_cantidad_total.pack(side="left")
+    fb=ttk.Frame(marco_contenido,padding=(15,5)); fb.pack(fill="x"); ttk.Label(fb,text="Buscar:",font=("Segoe UI",10,"bold")).pack(side="left",padx=(0,7)); entrada_busqueda=ttk.Entry(fb); entrada_busqueda.pack(side="left",fill="x",expand=True); entrada_busqueda.bind("<KeyRelease>",buscar)
+    buttons=ttk.Frame(marco_contenido,padding=(15,5)); buttons.pack(fill="x")
+    for text,cmd in (("➕ Nuevo",nuevo_material),("✏️ Editar",editar_material),("📥 Agregar",agregar_stock),("📤 Retirar",retirar_stock),("🔄 Actualizar",lambda:actualizar_todo(True))): ttk.Button(buttons,text=text,command=cmd).pack(side="left",padx=3)
+    ttk.Button(buttons,text="📄 Importar Word",command=importar_word_manual).pack(side="right",padx=3); ttk.Button(buttons,text="🧹 Reescaneo completo",command=reescaneo_completo).pack(side="right",padx=3)
+    lbl_progreso=ttk.Label(marco_contenido,text="Listo",foreground=COLOR_TEXTO_SECUNDARIO); lbl_progreso.pack(anchor="w",padx=18,pady=(2,2))
+    ft=ttk.Frame(marco_contenido,padding=(15,3)); ft.pack(fill="both",expand=True); cols=("codigo","material","cantidad","unidad","categoria","ubicacion","observaciones","estado"); tabla=ttk.Treeview(ft,columns=cols,show="headings",selectmode="browse"); heads={"codigo":"Código","material":"Material","cantidad":"Cantidad","unidad":"Unidad","categoria":"Categoría","ubicacion":"Ubicación","observaciones":"Observaciones","estado":"Estado"}; widths={"codigo":150,"material":300,"cantidad":100,"unidad":100,"categoria":150,"ubicacion":180,"observaciones":300,"estado":150}
+    for c in cols: tabla.heading(c,text=heads[c]); tabla.column(c,width=widths[c],minwidth=70)
+    sv=ttk.Scrollbar(ft,orient="vertical",command=tabla.yview); sh=ttk.Scrollbar(ft,orient="horizontal",command=tabla.xview); tabla.configure(yscrollcommand=sv.set,xscrollcommand=sh.set); tabla.grid(row=0,column=0,sticky="nsew"); sv.grid(row=0,column=1,sticky="ns"); sh.grid(row=1,column=0,sticky="ew"); ft.rowconfigure(0,weight=1); ft.columnconfigure(0,weight=1); tabla.tag_configure("stock",background=COLOR_STOCK_FONDO); tabla.tag_configure("sin_stock",background=COLOR_SIN_STOCK_FONDO)
+    ttk.Label(marco_contenido,text="Últimos movimientos",font=("Segoe UI",12,"bold")).pack(anchor="w",padx=15,pady=(8,3)); fm=ttk.Frame(marco_contenido,height=180); fm.pack(fill="x",padx=15,pady=(0,10)); fm.pack_propagate(False); mc=("fecha","codigo","material","tipo","cantidad","anterior","nuevo","usuario","archivo","observaciones"); tabla_movimientos=ttk.Treeview(fm,columns=mc,show="headings"); mh={"fecha":"Fecha","codigo":"Código","material":"Material","tipo":"Tipo","cantidad":"Cantidad","anterior":"Stock anterior","nuevo":"Stock nuevo","usuario":"Usuario","archivo":"Archivo","observaciones":"Observaciones"}; mw={"fecha":160,"codigo":130,"material":250,"tipo":100,"cantidad":100,"anterior":110,"nuevo":110,"usuario":100,"archivo":250,"observaciones":250}
+    for c in mc: tabla_movimientos.heading(c,text=mh[c]); tabla_movimientos.column(c,width=mw[c],minwidth=80)
+    smv=ttk.Scrollbar(fm,orient="vertical",command=tabla_movimientos.yview); smh=ttk.Scrollbar(fm,orient="horizontal",command=tabla_movimientos.xview); tabla_movimientos.configure(yscrollcommand=smv.set,xscrollcommand=smh.set); tabla_movimientos.grid(row=0,column=0,sticky="nsew"); smv.grid(row=0,column=1,sticky="ns"); smh.grid(row=1,column=0,sticky="ew"); fm.rowconfigure(0,weight=1); fm.columnconfigure(0,weight=1)
+    actualizar_tabla(); actualizar_movimientos()
 
 
 def crear_interfaz():
     global root, estado_archivos_word
-    root = tk.Tk()
-    root.title(NOMBRE_APP)
-    root.geometry("1500x900")
-    root.minsize(1100, 700)
-    root.configure(bg=COLOR_FONDO)
-    aplicar_estilo()
-    crear_cabecera()
-    mostrar_pantalla_seleccion()
-
+    root=tk.Tk(); root.title(NOMBRE_APP); root.geometry("1500x900"); root.minsize(1100,700); root.configure(bg=COLOR_FONDO); aplicar_estilo(); crear_cabecera(); mostrar_pantalla_seleccion()
     def iniciar():
         try:
-            conectado = probar_conexion()
-            root.after(0, lambda: lbl_estado.config(text="🟢 Conectado" if conectado else "🔴 Sin conexión"))
-            materiales, documentos, movimientos = cargar_datos_supabase()
-            root.after(0, refrescar_pantalla_seleccion)
+            conectado=probar_conexion(); root.after(0,lambda:lbl_estado.config(text="🟢 Conectado" if conectado else "🔴 Sin conexión")); cargar_datos_supabase(); root.after(0,refrescar_pantalla_seleccion)
         except Exception:
-            traceback.print_exc()
-            root.after(0, lambda: lbl_estado.config(text="🔴 Sin conexión"))
-
-    threading.Thread(target=iniciar, daemon=True).start()
-    estado_archivos_word = obtener_estado_archivos_word()
-    threading.Thread(target=monitor_word, daemon=True).start()
-    threading.Thread(target=monitor_sincronizacion, daemon=True).start()
-    root.after(1500, lambda: ejecutar_importacion_word(False))
-    root.mainloop()
+            traceback.print_exc(); root.after(0,lambda:lbl_estado.config(text="🔴 Sin conexión"))
+    threading.Thread(target=iniciar,daemon=True).start(); estado_archivos_word=obtener_estado_archivos_word(); threading.Thread(target=monitor_word,daemon=True).start(); threading.Thread(target=monitor_sincronizacion,daemon=True).start(); root.after(1500,lambda:ejecutar_importacion_word(False)); root.mainloop()
 
 
-if __name__ == "__main__":
-    crear_interfaz()
+if __name__ == "__main__": crear_interfaz()
