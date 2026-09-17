@@ -4779,9 +4779,6 @@ def crear_interfaz():
 
         except Exception as error:
 
-            global datos_iniciales_cargados
-            global error_carga_inicial
-
             datos_iniciales_cargados = False
             error_carga_inicial = error
 
