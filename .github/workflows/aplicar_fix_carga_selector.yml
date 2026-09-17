@@ -1,0 +1,81 @@
+name: Aplicar correccion de carga del selector
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Aplicar correccion
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path("main.py")
+          text = path.read_text(encoding="utf-8")
+
+          if "datos_iniciales_cargados = False" not in text:
+              text = text.replace(
+                  "pausar_sincronizacion = False\n",
+                  "pausar_sincronizacion = False\n\n# Estado de la carga inicial de documentos/materiales.\ndatos_iniciales_cargados = False\nerror_carga_inicial = None\n",
+                  1,
+              )
+
+          marker = "# ============================================================\n# REFRESCAR SELECTOR\n# ============================================================\n"
+          if "def mostrar_estado_selector(" not in text:
+              helper = '''def mostrar_estado_selector(mensaje, detalle=None, error=False):\n\n    if marco_selector is None:\n        return\n\n    for widget in marco_selector.winfo_children():\n        try:\n            widget.destroy()\n        except Exception:\n            pass\n\n    cont = tk.Frame(\n        marco_selector,\n        bg=COLOR_FONDO,\n    )\n\n    cont.pack(\n        fill="both",\n        expand=True,\n    )\n\n    simbolo = "🔴" if error else "⏳"\n\n    tk.Label(\n        cont,\n        text=f"{simbolo} {mensaje}",\n        bg=COLOR_FONDO,\n        fg=COLOR_TEXTO,\n        font=("Segoe UI", 16, "bold"),\n    ).pack(pady=(120, 8))\n\n    if detalle:\n        tk.Label(\n            cont,\n            text=detalle,\n            bg=COLOR_FONDO,\n            fg=COLOR_TEXTO_SECUNDARIO,\n            font=("Segoe UI", 10),\n        ).pack()\n\n\n'''
+              text = text.replace(marker, helper + marker, 1)
+
+          old_refresh = '''def refrescar_pantalla_seleccion():\n\n    if inventario_seleccionado:\n        return\n\n    if (\n        marco_selector is None\n        or not marco_selector.winfo_exists()\n    ):\n        return\n\n    for widget in (\n        marco_selector.winfo_children()\n    ):\n        widget.destroy()\n\n    construir_opciones_documentos(\n        marco_selector\n    )\n'''
+          new_refresh = '''def refrescar_pantalla_seleccion():\n\n    if inventario_seleccionado:\n        return\n\n    if (\n        marco_selector is None\n        or not marco_selector.winfo_exists()\n    ):\n        return\n\n    if not datos_iniciales_cargados:\n        if error_carga_inicial:\n            mostrar_estado_selector(\n                "No se pudieron cargar los inventarios",\n                str(error_carga_inicial),\n                error=True,\n            )\n        else:\n            mostrar_estado_selector(\n                "Cargando inventarios...",\n                "Conectando con la base de datos y cargando los documentos.",\n            )\n        return\n\n    for widget in marco_selector.winfo_children():\n        try:\n            widget.destroy()\n        except Exception:\n            pass\n\n    construir_opciones_documentos(\n        marco_selector\n    )\n'''
+          if old_refresh not in text:
+              raise SystemExit("No se encontró refrescar_pantalla_seleccion")
+          text = text.replace(old_refresh, new_refresh, 1)
+
+          old_show = '''    construir_opciones_documentos(\n        marco_selector\n    )\n\n\n# ============================================================\n# VOLVER AL SELECTOR\n'''
+          new_show = '''    refrescar_pantalla_seleccion()\n\n\n# ============================================================\n# VOLVER AL SELECTOR\n'''
+          if old_show not in text:
+              raise SystemExit("No se encontró la construcción inicial del selector")
+          text = text.replace(old_show, new_show, 1)
+
+          old_iniciar = '''    def iniciar():\n\n        try:\n\n            conectado = probar_conexion()\n'''
+          new_iniciar = '''    def iniciar():\n\n        global datos_iniciales_cargados\n        global error_carga_inicial\n\n        try:\n\n            conectado = probar_conexion()\n'''
+          if old_iniciar not in text:
+              raise SystemExit("No se encontró iniciar")
+          text = text.replace(old_iniciar, new_iniciar, 1)
+
+          old_success = '''            cargar_datos_supabase()\n\n            root.after(\n                0,\n                refrescar_pantalla_seleccion,\n            )\n'''
+          new_success = '''            cargar_datos_supabase()\n\n            datos_iniciales_cargados = True\n            error_carga_inicial = None\n\n            root.after(\n                0,\n                refrescar_pantalla_seleccion,\n            )\n'''
+          if old_success not in text:
+              raise SystemExit("No se encontró carga inicial")
+          text = text.replace(old_success, new_success, 1)
+
+          old_error = '''        except Exception:\n\n            traceback.print_exc()\n\n            root.after(\n                0,\n                lambda:\n                lbl_estado.config(\n                    text="🔴 Sin conexión"\n                ),\n            )\n'''
+          new_error = '''        except Exception as error:\n\n            global datos_iniciales_cargados\n            global error_carga_inicial\n\n            datos_iniciales_cargados = False\n            error_carga_inicial = error\n\n            traceback.print_exc()\n\n            root.after(\n                0,\n                lambda:\n                lbl_estado.config(\n                    text="🔴 Sin conexión"\n                ),\n            )\n\n            root.after(\n                0,\n                refrescar_pantalla_seleccion,\n            )\n'''
+          if old_error not in text:
+              raise SystemExit("No se encontró manejo de error inicial")
+          text = text.replace(old_error, new_error, 1)
+
+          path.write_text(text, encoding="utf-8")
+
+      - name: Commit y limpiar workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add main.py
+          git commit -m "Mejorar estado visual durante carga inicial" || true
+          git push
+          rm -f .github/workflows/aplicar_fix_carga_selector.yml
+          git add .github/workflows/aplicar_fix_carga_selector.yml
+          git commit -m "Limpiar workflow temporal de correccion" || true
+          git push || true
