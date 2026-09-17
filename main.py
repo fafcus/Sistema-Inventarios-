@@ -97,6 +97,10 @@ firma_datos_sincronizados = None
 
 pausar_sincronizacion = False
 
+# Estado de la carga inicial de documentos/materiales.
+datos_iniciales_cargados = False
+error_carga_inicial = None
+
 
 # ============================================================
 # UTILIDADES
@@ -3759,6 +3763,47 @@ def seleccionar_inventario(documento):
     construir_pantalla_inventario()
 
 
+def mostrar_estado_selector(mensaje, detalle=None, error=False):
+
+    if marco_selector is None:
+        return
+
+    for widget in marco_selector.winfo_children():
+        try:
+            widget.destroy()
+        except Exception:
+            pass
+
+    cont = tk.Frame(
+        marco_selector,
+        bg=COLOR_FONDO,
+    )
+
+    cont.pack(
+        fill="both",
+        expand=True,
+    )
+
+    simbolo = "🔴" if error else "⏳"
+
+    tk.Label(
+        cont,
+        text=f"{simbolo} {mensaje}",
+        bg=COLOR_FONDO,
+        fg=COLOR_TEXTO,
+        font=("Segoe UI", 16, "bold"),
+    ).pack(pady=(120, 8))
+
+    if detalle:
+        tk.Label(
+            cont,
+            text=detalle,
+            bg=COLOR_FONDO,
+            fg=COLOR_TEXTO_SECUNDARIO,
+            font=("Segoe UI", 10),
+        ).pack()
+
+
 # ============================================================
 # REFRESCAR SELECTOR
 # ============================================================
@@ -3774,10 +3819,25 @@ def refrescar_pantalla_seleccion():
     ):
         return
 
-    for widget in (
-        marco_selector.winfo_children()
-    ):
-        widget.destroy()
+    if not datos_iniciales_cargados:
+        if error_carga_inicial:
+            mostrar_estado_selector(
+                "No se pudieron cargar los inventarios",
+                str(error_carga_inicial),
+                error=True,
+            )
+        else:
+            mostrar_estado_selector(
+                "Cargando inventarios...",
+                "Conectando con la base de datos y cargando los documentos.",
+            )
+        return
+
+    for widget in marco_selector.winfo_children():
+        try:
+            widget.destroy()
+        except Exception:
+            pass
 
     construir_opciones_documentos(
         marco_selector
@@ -4008,9 +4068,7 @@ def mostrar_pantalla_seleccion():
         expand=True,
     )
 
-    construir_opciones_documentos(
-        marco_selector
-    )
+    refrescar_pantalla_seleccion()
 
 
 # ============================================================
@@ -4690,6 +4748,9 @@ def crear_interfaz():
 
     def iniciar():
 
+        global datos_iniciales_cargados
+        global error_carga_inicial
+
         try:
 
             conectado = probar_conexion()
@@ -4708,12 +4769,21 @@ def crear_interfaz():
 
             cargar_datos_supabase()
 
+            datos_iniciales_cargados = True
+            error_carga_inicial = None
+
             root.after(
                 0,
                 refrescar_pantalla_seleccion,
             )
 
-        except Exception:
+        except Exception as error:
+
+            global datos_iniciales_cargados
+            global error_carga_inicial
+
+            datos_iniciales_cargados = False
+            error_carga_inicial = error
 
             traceback.print_exc()
 
@@ -4723,6 +4793,11 @@ def crear_interfaz():
                 lbl_estado.config(
                     text="🔴 Sin conexión"
                 ),
+            )
+
+            root.after(
+                0,
+                refrescar_pantalla_seleccion,
             )
 
     threading.Thread(
