@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox
 import traceback
 
 from usuarios_db import iniciar_sesion, cerrar_sesion, tiene_permiso, obtener_nombre_usuario, obtener_rol_usuario, solicitar_acceso
+from permisos_documentos import tiene_permiso_documento
 
 
 def mostrar_solicitud_acceso(parent):
@@ -61,8 +62,20 @@ def mostrar_solicitud_acceso(parent):
 def agregar_boton_administracion(app, nombre_admin):
     try:
         cabecera = app.root.winfo_children()[0]
-        boton = ttk.Button(cabecera, text="👥 Usuarios", command=lambda: abrir_admin_usuarios(app.root, nombre_admin))
-        boton.pack(side="right", padx=(0, 12))
+
+        boton_permisos = ttk.Button(
+            cabecera,
+            text="🔐 Permisos",
+            command=lambda: abrir_admin_permisos(app.root),
+        )
+        boton_permisos.pack(side="right", padx=(0, 8))
+
+        boton_usuarios = ttk.Button(
+            cabecera,
+            text="👥 Usuarios",
+            command=lambda: abrir_admin_usuarios(app.root, nombre_admin),
+        )
+        boton_usuarios.pack(side="right", padx=(0, 12))
         return True
     except Exception:
         traceback.print_exc()
@@ -76,6 +89,15 @@ def abrir_admin_usuarios(parent, nombre_admin):
     except Exception as error:
         traceback.print_exc()
         messagebox.showerror("Administración de usuarios", f"No se pudo abrir el panel de usuarios:\n\n{error}", parent=parent)
+
+
+def abrir_admin_permisos(parent):
+    try:
+        from permisos_documentos import abrir_admin_permisos as abrir
+        return abrir(parent)
+    except Exception as error:
+        traceback.print_exc()
+        messagebox.showerror("Permisos por documento", f"No se pudo abrir el panel de permisos:\n\n{error}", parent=parent)
 
 
 def ejecutar_aplicacion(datos_usuario):
@@ -95,6 +117,28 @@ def ejecutar_aplicacion(datos_usuario):
         wrapper.__name__ = getattr(funcion, "__name__", "accion")
         return wrapper
 
+    def proteger_documento(nombre_permiso, funcion):
+        """Aplica una segunda capa de autorización específica del documento."""
+        def wrapper(*args, **kwargs):
+            try:
+                documento_id = app.obtener_documento_id_actual()
+            except Exception:
+                documento_id = None
+
+            if tiene_permiso_documento(documento_id, nombre_permiso):
+                return funcion(*args, **kwargs)
+
+            messagebox.showwarning(
+                "Permiso de documento denegado",
+                "No tenés permiso para realizar esta acción sobre el documento seleccionado.\n\n"
+                f"Permiso requerido: {nombre_permiso}",
+                parent=getattr(app, "root", None),
+            )
+
+        wrapper.__name__ = getattr(funcion, "__name__", "accion")
+        return wrapper
+
+    # Permisos generales por rol.
     app.nuevo_material = proteger("crear_material", app.nuevo_material)
     app.editar_material = proteger("editar_material", app.editar_material)
     app.eliminar_material = proteger("eliminar_material", app.eliminar_material)
@@ -103,6 +147,15 @@ def ejecutar_aplicacion(datos_usuario):
     app.abrir_reportes = proteger("generar_reportes", app.abrir_reportes)
     app.importar_word_manual = proteger("importar_word", app.importar_word_manual)
     app.reescaneo_completo = proteger("reescaneo_completo", app.reescaneo_completo)
+
+    # Segunda capa: permisos particulares del documento seleccionado.
+    # El administrador pasa siempre por RLS y por la comprobación del módulo.
+    app.nuevo_material = proteger_documento("modificar", app.nuevo_material)
+    app.editar_material = proteger_documento("modificar", app.editar_material)
+    app.eliminar_material = proteger_documento("eliminar", app.eliminar_material)
+    app.agregar_stock = proteger_documento("agregar", app.agregar_stock)
+    app.retirar_stock = proteger_documento("retirar", app.retirar_stock)
+    app.reescaneo_completo = proteger_documento("importar", app.reescaneo_completo)
 
     funcion_stock_original = app.actualizar_stock_documento
     def actualizar_stock_con_usuario(*args, **kwargs):
