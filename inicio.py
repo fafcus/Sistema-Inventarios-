@@ -8,7 +8,165 @@ from usuarios_db import (
     tiene_permiso,
     obtener_nombre_usuario,
     obtener_rol_usuario,
+    solicitar_acceso,
 )
+
+
+def mostrar_solicitud_acceso(parent):
+    ventana = tk.Toplevel(parent)
+    ventana.title("Solicitar acceso")
+    ventana.geometry("500x540")
+    ventana.resizable(False, False)
+    ventana.transient(parent)
+    ventana.grab_set()
+
+    ventana.configure(bg="#eef3f8")
+
+    cabecera = tk.Frame(ventana, bg="#12304a", height=70)
+    cabecera.pack(fill="x")
+    cabecera.pack_propagate(False)
+
+    tk.Label(
+        cabecera,
+        text="👤 Solicitar acceso",
+        bg="#12304a",
+        fg="white",
+        font=("Segoe UI", 17, "bold"),
+    ).pack(anchor="w", padx=20, pady=20)
+
+    marco = ttk.Frame(ventana, padding=25)
+    marco.pack(fill="both", expand=True)
+
+    entradas = {}
+
+    campos = [
+        ("Nombre y apellido", "nombre", False),
+        ("Email", "email", False),
+        ("Contraseña", "password", True),
+        ("Repetir contraseña", "password2", True),
+    ]
+
+    for fila, (texto, clave, secreto) in enumerate(campos):
+        ttk.Label(
+            marco,
+            text=texto,
+            font=("Segoe UI", 10, "bold"),
+        ).grid(row=fila, column=0, sticky="w", pady=(5, 3))
+
+        entrada = ttk.Entry(marco, width=45, show="*" if secreto else "")
+        entrada.grid(row=fila, column=1, sticky="ew", pady=(5, 8), padx=(12, 0))
+        entradas[clave] = entrada
+
+    ttk.Label(
+        marco,
+        text="Rol solicitado",
+        font=("Segoe UI", 10, "bold"),
+    ).grid(row=4, column=0, sticky="w", pady=(5, 3))
+
+    rol_var = tk.StringVar(value="consulta")
+    combo_rol = ttk.Combobox(
+        marco,
+        textvariable=rol_var,
+        values=("consulta", "encargado"),
+        state="readonly",
+        width=42,
+    )
+    combo_rol.grid(row=4, column=1, sticky="ew", pady=(5, 8), padx=(12, 0))
+
+    ttk.Label(
+        marco,
+        text=(
+            "La solicitud quedará pendiente hasta que un administrador "
+            "autorice el acceso.\n\n"
+            "El rol administrador no puede solicitarse desde esta pantalla."
+        ),
+        foreground="#506575",
+        wraplength=430,
+    ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(12, 12))
+
+    estado = ttk.Label(marco, text="", foreground="#506575", wraplength=430)
+    estado.grid(row=6, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
+    def enviar():
+        boton.config(state="disabled")
+        estado.config(text="Registrando solicitud...")
+        ventana.update_idletasks()
+
+        try:
+            solicitud = solicitar_acceso(
+                entradas["nombre"].get(),
+                entradas["email"].get(),
+                entradas["password"].get(),
+                entradas["password2"].get(),
+                rol_var.get(),
+            )
+
+            messagebox.showinfo(
+                "Solicitud enviada",
+                "La solicitud fue enviada correctamente.\n\n"
+                "Un administrador debe autorizar tu acceso antes de que puedas entrar al sistema.",
+                parent=ventana,
+            )
+            ventana.destroy()
+
+        except Exception as error:
+            boton.config(state="normal")
+            estado.config(text="No se pudo registrar la solicitud.")
+            messagebox.showerror(
+                "Solicitud rechazada",
+                str(error),
+                parent=ventana,
+            )
+
+    botones = ttk.Frame(marco)
+    botones.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+
+    boton = ttk.Button(
+        botones,
+        text="📨 Enviar solicitud",
+        command=enviar,
+    )
+    boton.pack(side="right", padx=4)
+
+    ttk.Button(
+        botones,
+        text="Cancelar",
+        command=ventana.destroy,
+    ).pack(side="right", padx=4)
+
+    marco.columnconfigure(1, weight=1)
+    entradas["nombre"].focus_set()
+
+
+def agregar_boton_administracion(app, nombre_admin):
+    """Agrega el acceso a administración sin modificar la interfaz principal."""
+    try:
+        cabecera = app.root.winfo_children()[0]
+
+        boton = ttk.Button(
+            cabecera,
+            text="👥 Usuarios",
+            command=lambda: abrir_admin_usuarios(app.root, nombre_admin),
+        )
+        boton.pack(side="right", padx=(0, 12))
+
+        return True
+    except Exception:
+        traceback.print_exc()
+        return False
+
+
+def abrir_admin_usuarios(parent, nombre_admin):
+    try:
+        from admin_usuarios import abrir_admin_usuarios as abrir
+        return abrir(parent, nombre_admin)
+    except Exception as error:
+        traceback.print_exc()
+        messagebox.showerror(
+            "Administración de usuarios",
+            f"No se pudo abrir el panel de usuarios:\n\n{error}",
+            parent=parent,
+        )
 
 
 def ejecutar_aplicacion(datos_usuario):
@@ -75,6 +233,15 @@ def ejecutar_aplicacion(datos_usuario):
     except Exception:
         pass
 
+    if rol == "administrador":
+        funcion_cabecera_original = app.crear_cabecera
+
+        def crear_cabecera_con_usuarios():
+            funcion_cabecera_original()
+            agregar_boton_administracion(app, nombre)
+
+        app.crear_cabecera = crear_cabecera_con_usuarios
+
     app.crear_interfaz()
 
     try:
@@ -94,7 +261,7 @@ def ejecutar_aplicacion(datos_usuario):
 def mostrar_login():
     login = tk.Tk()
     login.title("Acceso - Inventario Material Naval")
-    login.geometry("430x300")
+    login.geometry("430x350")
     login.resizable(False, False)
     login.configure(bg="#eef3f8")
 
@@ -150,7 +317,7 @@ def mostrar_login():
     ).pack(anchor="w")
 
     entrada_password = ttk.Entry(marco, width=42, show="*")
-    entrada_password.pack(fill="x", pady=(5, 15))
+    entrada_password.pack(fill="x", pady=(5, 12))
 
     estado = ttk.Label(marco, text="", style="Login.TLabel")
     estado.pack(anchor="w", pady=(0, 8))
@@ -194,7 +361,14 @@ def mostrar_login():
         command=entrar,
         style="Login.TButton",
     )
-    boton.pack(fill="x", pady=(2, 0))
+    boton.pack(fill="x", pady=(2, 7))
+
+    ttk.Button(
+        marco,
+        text="👤 Solicitar acceso",
+        command=lambda: mostrar_solicitud_acceso(login),
+        style="Login.TButton",
+    ).pack(fill="x")
 
     login.bind("<Return>", entrar)
     entrada_email.focus_set()
