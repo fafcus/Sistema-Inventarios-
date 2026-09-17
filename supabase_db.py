@@ -212,7 +212,17 @@ def actualizar_cantidad_documento_item(item_id, nueva_cantidad, usuario=None, ob
     if not data: raise Exception("No se pudo actualizar documento_items.")
     supabase.table("ajustes_stock").delete().eq("documento_id", documento_id).eq("material_id", material_id).execute()
     tipo = "ENTRADA" if diferencia > 0 else "SALIDA"
-    registrar_movimiento(material_id, tipo, abs(diferencia), stock_actual, nueva_cantidad, usuario, observaciones, archivo_origen)
+    registrar_movimiento(
+        material_id,
+        tipo,
+        abs(diferencia),
+        stock_actual,
+        nueva_cantidad,
+        usuario,
+        observaciones,
+        archivo_origen,
+        documento_id=documento_id,
+    )
     return nueva_cantidad
 
 
@@ -233,8 +243,18 @@ def obtener_ajuste_total(material_id):
     return sum(_float(x.get("cantidad")) for x in data)
 
 
-def registrar_movimiento(material_id, tipo, cantidad, stock_anterior, stock_nuevo, usuario=None, observaciones=None, archivo_origen=None):
-    datos = {"material_id": int(material_id), "tipo": _normalizar_tipo(tipo), "cantidad": _float(cantidad), "stock_anterior": _float(stock_anterior), "stock_nuevo": _float(stock_nuevo), "usuario": usuario, "observaciones": observaciones, "archivo_origen": archivo_origen}
+def registrar_movimiento(material_id, tipo, cantidad, stock_anterior, stock_nuevo, usuario=None, observaciones=None, archivo_origen=None, documento_id=None):
+    datos = {
+        "material_id": int(material_id),
+        "tipo": _normalizar_tipo(tipo),
+        "cantidad": _float(cantidad),
+        "stock_anterior": _float(stock_anterior),
+        "stock_nuevo": _float(stock_nuevo),
+        "usuario": usuario,
+        "observaciones": observaciones,
+        "archivo_origen": archivo_origen,
+        "documento_id": documento_id,
+    }
     data = supabase.table("movimientos").insert(datos).execute().data or []
     return data[0] if data else None
 
@@ -247,7 +267,7 @@ def agregar_ajuste_stock(material_id, delta, usuario=None, observaciones=None):
     if abs(delta) < 0.000001: return stock_anterior
     data = supabase.table("ajustes_stock").insert({"material_id": int(material_id), "documento_id": None, "cantidad": delta, "usuario": usuario, "observaciones": observaciones}).execute().data or []
     if not data: raise Exception("No se pudo guardar el ajuste.")
-    registrar_movimiento(material_id, "ENTRADA" if delta > 0 else "SALIDA", abs(delta), stock_anterior, stock_nuevo, usuario, observaciones, None)
+    registrar_movimiento(material_id, "ENTRADA" if delta > 0 else "SALIDA", abs(delta), stock_anterior, stock_nuevo, usuario, observaciones, None, documento_id=None)
     return stock_nuevo
 
 
@@ -356,25 +376,3 @@ def buscar_material_sin_codigo(material, categoria, ubicacion):
 
 def buscar_material(codigo, material, categoria=None, ubicacion=None):
     return buscar_material_por_codigo(codigo, material) if codigo else buscar_material_sin_codigo(material, categoria, ubicacion)
-
-
-def buscar_materiales(texto):
-    texto = (texto or "").strip().lower()
-    materiales = obtener_inventario_general()
-    if not texto: return materiales
-    return [m for m in materiales if any(texto in str(m.get(c) or "").lower() for c in ("codigo", "material", "categoria", "ubicacion", "observaciones"))]
-
-
-def obtener_estadisticas():
-    materiales = obtener_inventario_general()
-    total = len(materiales)
-    con_stock = sum(1 for m in materiales if _float(m.get("cantidad")) > 0)
-    return {"total_materiales": total, "con_stock": con_stock, "sin_stock": total - con_stock, "cantidad_total": sum(_float(m.get("cantidad")) for m in materiales)}
-
-
-def probar_conexion():
-    try:
-        data = supabase.table("materiales").select("id").limit(1).execute().data
-        return data is not None
-    except Exception:
-        return False
