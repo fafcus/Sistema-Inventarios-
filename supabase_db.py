@@ -62,6 +62,62 @@ def actualizar_origen(material_id, nombre_archivo):
     return data[0] if data else None
 
 
+def eliminar_material_del_documento(documento_id, material_id):
+    """
+    Elimina un material del inventario/documento seleccionado.
+
+    - Elimina el documento_item del documento indicado.
+    - Elimina los ajustes específicos de ese documento/material.
+    - Si el material ya no pertenece a ningún documento, elimina también
+      su registro global en materiales.
+    - NO elimina movimientos históricos.
+    """
+    try:
+        documento_id = int(documento_id)
+        material_id = int(material_id)
+    except (TypeError, ValueError):
+        raise Exception("Documento o material inválido.")
+
+    item = obtener_item_documento_por_material(documento_id, material_id)
+    if not item:
+        raise Exception("El material no pertenece al inventario seleccionado.")
+
+    # Primero eliminamos los ajustes específicos del documento.
+    supabase.table("ajustes_stock").delete().eq(
+        "documento_id", documento_id
+    ).eq(
+        "material_id", material_id
+    ).execute()
+
+    # Luego eliminamos el vínculo del material con este documento.
+    supabase.table("documento_items").delete().eq(
+        "id", item["id"]
+    ).execute()
+
+    # Verificamos si el material sigue perteneciendo a otro inventario.
+    otros = supabase.table("documento_items").select("id").eq(
+        "material_id", material_id
+    ).limit(1).execute().data or []
+
+    material_eliminado = False
+
+    if not otros:
+        # Los movimientos históricos se conservan. Si la base tiene una
+        # FK restrictiva sobre movimientos.material_id, Supabase rechazará
+        # esta operación y el llamador informará el error.
+        supabase.table("materiales").delete().eq(
+            "id", material_id
+        ).execute()
+        material_eliminado = True
+
+    return {
+        "documento_item_eliminado": True,
+        "material_eliminado": material_eliminado,
+        "material_id": material_id,
+        "documento_id": documento_id,
+    }
+
+
 # ============================================================
 # DOCUMENTOS
 # ============================================================
