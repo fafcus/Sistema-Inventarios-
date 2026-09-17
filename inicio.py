@@ -127,6 +127,9 @@ def abrir_selector_relacion_transito(app):
         foreground="#506575",
     ).pack(fill="x", pady=(0, 8))
 
+    generar_pdf = tk.BooleanVar(value=True)
+    ttk.Checkbutton(marco, text="Generar también el PDF", variable=generar_pdf).pack(anchor="w", pady=(0, 8))
+
     marco_tabla = ttk.Frame(marco)
     marco_tabla.pack(fill="both", expand=True)
 
@@ -403,10 +406,12 @@ def abrir_selector_relacion_transito(app):
                     tipo_movimiento=tipo.get().strip(),
                     destino=destino.get().strip(),
                     transporte=transporte,
+                    generar_pdf=generar_pdf.get(),
                 )
                 messagebox.showinfo(
                     "Relación de Tránsito",
-                    f"La relación se generó correctamente con {len(materiales_relacion)} material(es).\n\nArchivo:\n{salida}",
+                    f"La relación se generó correctamente con {len(materiales_relacion)} material(es).\n\nExcel:\n{salida}"
+                    + (f"\n\nPDF:\n{salida.rsplit('.', 1)[0]}.pdf" if generar_pdf.get() else ""),
                     parent=ventana,
                 )
                 ventana.destroy()
