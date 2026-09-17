@@ -3848,6 +3848,20 @@ def refrescar_pantalla_seleccion():
 # TARJETAS DE DOCUMENTOS
 # ============================================================
 
+def cambiar_fondo_recursivo(widget, color):
+
+    try:
+        widget.configure(bg=color)
+    except Exception:
+        pass
+
+    try:
+        for hijo in widget.winfo_children():
+            cambiar_fondo_recursivo(hijo, color)
+    except Exception:
+        pass
+
+
 def construir_opciones_documentos(parent):
 
     documentos = [
@@ -3858,18 +3872,18 @@ def construir_opciones_documentos(parent):
 
     ttk.Label(
         parent,
-        text="Seleccioná el inventario",
-        font=("Segoe UI", 15, "bold"),
+        text="📂 Seleccioná el inventario",
+        font=("Segoe UI", 17, "bold"),
     ).pack(
-        pady=(20, 5)
+        pady=(24, 4)
     )
 
     ttk.Label(
         parent,
-        text="Cada archivo Word administra su propio stock.",
+        text="Elegí el archivo Word cuyo inventario querés administrar.",
         foreground=COLOR_TEXTO_SECUNDARIO,
     ).pack(
-        pady=(0, 18)
+        pady=(0, 16)
     )
 
     cont = tk.Frame(
@@ -3910,7 +3924,7 @@ def construir_opciones_documentos(parent):
             highlightbackground=COLOR_BORDE,
             highlightthickness=1,
             padx=18,
-            pady=15,
+            pady=16,
             cursor="hand2",
         )
 
@@ -3945,7 +3959,7 @@ def construir_opciones_documentos(parent):
             text="📄",
             bg=COLOR_PANEL,
             fg=COLOR_AZUL,
-            font=("Segoe UI", 24),
+            font=("Segoe UI", 26),
             cursor="hand2",
         )
 
@@ -3981,7 +3995,7 @@ def construir_opciones_documentos(parent):
 
         etiqueta_descripcion = tk.Label(
             info,
-            text="Abrir inventario",
+            text="Inventario disponible · Abrir para consultar y gestionar stock",
             bg=COLOR_PANEL,
             fg=COLOR_TEXTO_SECUNDARIO,
             font=("Segoe UI", 9),
@@ -4004,6 +4018,47 @@ def construir_opciones_documentos(parent):
             anchor="w"
         )
 
+        def tarjeta_entrada(event=None, tarjeta=tarjeta):
+            cambiar_fondo_recursivo(
+                tarjeta,
+                COLOR_AZUL_CLARO,
+            )
+            tarjeta.configure(
+                highlightbackground=COLOR_AZUL,
+                highlightthickness=2,
+            )
+
+        def tarjeta_salida(event=None, tarjeta=tarjeta):
+            cambiar_fondo_recursivo(
+                tarjeta,
+                COLOR_PANEL,
+            )
+            tarjeta.configure(
+                highlightbackground=COLOR_BORDE,
+                highlightthickness=1,
+            )
+
+        def vincular_hover(widget):
+            widget.bind(
+                "<Enter>",
+                tarjeta_entrada,
+                add="+",
+            )
+            widget.bind(
+                "<Leave>",
+                tarjeta_salida,
+                add="+",
+            )
+
+        for widget in (
+            tarjeta,
+            icono,
+            info,
+            etiqueta_nombre,
+            etiqueta_descripcion,
+        ):
+            vincular_hover(widget)
+
         tarjeta.bind(
             "<Button-1>",
             abrir_documento,
@@ -4022,6 +4077,17 @@ def construir_opciones_documentos(parent):
         etiqueta_descripcion.bind(
             "<Button-1>",
             abrir_documento,
+        )
+
+        boton.bind(
+            "<Enter>",
+            tarjeta_entrada,
+            add="+",
+        )
+        boton.bind(
+            "<Leave>",
+            tarjeta_salida,
+            add="+",
         )
 
 
