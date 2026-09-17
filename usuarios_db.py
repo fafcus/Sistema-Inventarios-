@@ -45,13 +45,11 @@ PERMISOS = {
         "importar_word",
         "reescaneo_completo",
     },
-    "consulta": {
+           "consulta": {
         "ver_inventario",
         "ver_historial",
         "generar_reportes",
-        "agregar_stock",
-        "retirar_stock",
-    },
+    }
 }
 
 

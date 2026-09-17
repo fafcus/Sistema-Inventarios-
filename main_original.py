@@ -1,3 +1,4 @@
+import sys
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
 from pathlib import Path
@@ -23,10 +24,8 @@ from supabase_db import (
     eliminar_material_del_documento,
 )
 import importar_word
-from relacion_transito import RelacionTransitoError, generar_relacion_transito
-from ui_relacion_transito import abrir_selector_relacion_transito
 import reportes
-
+from relacion_transito import RelacionTransitoError, generar_relacion_transito
 
 # ============================================================
 # CONFIGURACIÓN
