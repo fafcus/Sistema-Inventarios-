@@ -5,8 +5,8 @@ _SOURCE = Path(__file__).with_name("main_original.py")
 _source = _SOURCE.read_text(encoding="utf-8")
 
 _new_func = '''def generar_relacion_transito_ui():
-    """Abre el selector general y genera la Relación de Tránsito."""
-    from relacion_transito_selector import seleccionar_materiales_general
+    """Abre el selector general con búsqueda y carga no bloqueante."""
+    from relacion_transito_selector_v2 import seleccionar_materiales_general
 
     try:
         materiales = seleccionar_materiales_general(root)
@@ -23,25 +23,19 @@ _new_func = '''def generar_relacion_transito_ui():
         return
 
     tipo_movimiento = simpledialog.askstring(
-        "Relación de Tránsito",
-        "Tipo de movimiento:",
-        parent=root,
+        "Relación de Tránsito", "Tipo de movimiento:", parent=root
     )
     if tipo_movimiento is None:
         return
 
     destino = simpledialog.askstring(
-        "Relación de Tránsito",
-        "Destino:",
-        parent=root,
+        "Relación de Tránsito", "Destino:", parent=root
     )
     if destino is None:
         return
 
     transporte = simpledialog.askstring(
-        "Relación de Tránsito",
-        "Transporte:",
-        parent=root,
+        "Relación de Tránsito", "Transporte:", parent=root
     )
     if transporte is None:
         return
@@ -100,6 +94,6 @@ _source, _count = re.subn(
     flags=re.S,
 )
 if _count != 1:
-    raise RuntimeError("No se encontró generar_relacion_transito_ui en main.py")
+    raise RuntimeError("No se encontró generar_relacion_transito_ui en main_original.py")
 
 exec(compile(_source, str(_SOURCE), "exec"), globals(), globals())
