@@ -6,7 +6,9 @@ El módulo recibe la aplicación como dependencia para reutilizar su estado.
 
 from pathlib import Path
 from datetime import datetime
-from tkinter import messagebox, filedialog
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+import traceback
 
 # ============================================================
 # REPORTES - UTILIDADES
@@ -886,7 +888,7 @@ def abrir_reportes(app):
             f"Inventario: "
             f"{app.inventario_seleccionado}"
         ),
-        foreground=COLOR_AZUL,
+        foreground=app.COLOR_AZUL,
         font=(
             "Segoe UI",
             10,
@@ -918,7 +920,7 @@ def abrir_reportes(app):
             "Genera un Excel con todos los materiales "
             "del inventario seleccionado."
         ),
-        foreground=COLOR_TEXTO_SECUNDARIO,
+        foreground=app.COLOR_TEXTO_SECUNDARIO,
     ).pack(
         anchor="w",
         pady=(2, 7),
@@ -927,7 +929,7 @@ def abrir_reportes(app):
     ttk.Button(
         marco,
         text="📦 Generar reporte de inventario",
-        command=generar_reporte_inventario_excel,
+        command=lambda: generar_reporte_inventario_excel(app),
     ).pack(
         fill="x",
         pady=(0, 18),
@@ -956,7 +958,7 @@ def abrir_reportes(app):
             "Podés generar el historial completo "
             "o seleccionar un período."
         ),
-        foreground=COLOR_TEXTO_SECUNDARIO,
+        foreground=app.COLOR_TEXTO_SECUNDARIO,
     ).pack(
         anchor="w",
         pady=(2, 8),
@@ -1017,7 +1019,7 @@ def abrir_reportes(app):
     ttk.Label(
         marco,
         text="Formato: DD/MM/AAAA",
-        foreground=COLOR_TEXTO_SECUNDARIO,
+        foreground=app.COLOR_TEXTO_SECUNDARIO,
     ).pack(
         anchor="w",
         pady=(0, 8),
@@ -1096,6 +1098,7 @@ def abrir_reportes(app):
             return
 
         generar_reporte_movimientos_excel(
+            app,
             ventana=ventana,
             fecha_desde=fecha_desde,
             fecha_hasta=fecha_hasta,
