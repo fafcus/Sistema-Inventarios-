@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from supabase_db import agregar_ajuste_stock, obtener_stock_general_material
+from supabase_db import agregar_ajuste_stock, obtener_stock_general_material, registrar_movimiento
 from relacion_transito_origenes import descontar_origen_material, obtener_origenes_material
 
 
@@ -136,8 +136,6 @@ def _resolver_origen(material):
         if len(candidatos) == 1:
             return candidatos[0]
         if candidatos:
-            # Si existen filas consolidadas, la primera representa el origen
-            # lógico documento/material y su stock ya está consolidado.
             return candidatos[0]
 
     candidatos = origenes
@@ -179,7 +177,6 @@ def descontar_materiales_relacion(materiales, usuario=None, identificador_relaci
     if identificador_relacion:
         observacion_base += f": {identificador_relacion}"
 
-    # Validar TODO antes de modificar cualquier registro.
     origenes_resueltos = []
     for material_id, cantidad, material in pendientes:
         origen = _resolver_origen(material)
@@ -187,8 +184,6 @@ def descontar_materiales_relacion(materiales, usuario=None, identificador_relaci
             stock = float(origen.get("stock_disponible") or 0)
         else:
             stock = float(obtener_stock_general_material(material_id) or 0)
-            # Si el material tiene varios orígenes y la UI no especificó cuál,
-            # no adivinamos: una salida ambigua debe ser rechazada.
             try:
                 cantidad_origenes = len(obtener_origenes_material(int(material_id)) or [])
             except Exception:
@@ -219,19 +214,39 @@ def descontar_materiales_relacion(materiales, usuario=None, identificador_relaci
 
         return {"materiales": len(aplicados), "cantidad_total": sum(cantidad for _, cantidad, _, _ in aplicados)}
     except Exception as error:
-        # Revertir únicamente lo ya aplicado, manteniendo el mismo origen.
+        # Revertir únicamente lo ya aplicado y registrar también el movimiento
+        # compensatorio para que el historial quede consistente.
         for material_id, cantidad, material, origen in reversed(aplicados):
             try:
                 if origen is not None:
                     from config import supabase
+                    documento_id = int(origen.get("documento_id"))
+                    actual_origen = _resolver_origen({
+                        "id": material_id,
+                        "_documento_id": documento_id,
+                        "_documento_item_id": origen.get("documento_item_id"),
+                    }) or origen
+                    stock_actual = float(actual_origen.get("stock_disponible") or 0)
                     supabase.table("ajustes_stock").insert({
                         "material_id": int(material_id),
-                        "documento_id": int(origen.get("documento_id")),
+                        "documento_id": documento_id,
                         "cantidad": cantidad,
                         "usuario": usuario,
                         "observaciones": f"Reversión automática por error en {observacion_base}",
                     }).execute()
+                    registrar_movimiento(
+                        material_id,
+                        "ENTRADA",
+                        cantidad,
+                        stock_actual,
+                        stock_actual + cantidad,
+                        usuario,
+                        f"Reversión automática por error en {observacion_base}",
+                        actual_origen.get("archivo_origen") or material.get("archivo_origen"),
+                        documento_id=documento_id,
+                    )
                 else:
+                    stock_actual = float(obtener_stock_general_material(material_id) or 0)
                     agregar_ajuste_stock(material_id, cantidad, usuario=usuario, observaciones=f"Reversión automática por error en {observacion_base}")
             except Exception:
                 pass
