@@ -114,6 +114,8 @@ Deno.serve(async (req) => {
     const email = String(solicitud.email).trim().toLowerCase();
     let authUserId: string | null = null;
     let usuarioExistente = false;
+    let correoEnviado = false;
+    let correoPendiente = false;
 
     const { data: usersPage, error: usersError } = await adminClient.auth.admin.listUsers({
       page: 1,
@@ -136,30 +138,43 @@ Deno.serve(async (req) => {
         data: { nombre: solicitud.nombre },
       });
 
-      if (inviteError || !inviteData.user) {
-        const mensaje = inviteError?.message || "No se pudo crear la cuenta de autenticación.";
+      if (inviteData?.user) {
+        authUserId = inviteData.user.id;
+        correoEnviado = true;
+      } else if (inviteError) {
+        const mensaje = inviteError.message || "No se pudo crear la cuenta de autenticación.";
         const mensajeNormalizado = mensaje.toLowerCase();
 
-        // El límite de emails de Supabase no significa que la solicitud haya
-        // sido rechazada. La dejamos en "pendiente" para poder reintentar
-        // cuando el límite se restablezca.
+        // Si Supabase bloquea el envío de emails por rate limit, creamos
+        // igualmente la cuenta de Auth sin enviar correo. La solicitud puede
+        // quedar aprobada y el administrador podrá enviar el acceso después
+        // cuando se restablezca el límite de emails.
         if (
           mensajeNormalizado.includes("email rate limit") ||
           mensajeNormalizado.includes("rate limit exceeded") ||
           mensajeNormalizado.includes("rate limit")
         ) {
-          return respuesta({
-            ok: false,
-            codigo: "EMAIL_RATE_LIMIT",
-            pendiente: true,
-            error: "Supabase alcanzó temporalmente el límite de envío de emails. La solicitud sigue pendiente y no fue rechazada. Podés volver a autorizarla cuando el límite se restablezca.",
-          }, 429);
+          const { data: createData, error: createError } = await adminClient.auth.admin.createUser({
+            email,
+            email_confirm: false,
+            user_metadata: { nombre: solicitud.nombre },
+          });
+
+          if (createError || !createData.user) {
+            return respuesta({
+              ok: false,
+              codigo: "EMAIL_RATE_LIMIT",
+              pendiente: true,
+              error: "Supabase alcanzó el límite de emails y tampoco pudo crear la cuenta de autenticación. La solicitud sigue pendiente. Intentá nuevamente más tarde.",
+            }, 429);
+          }
+
+          authUserId = createData.user.id;
+          correoPendiente = true;
+        } else {
+          return respuesta({ error: mensaje }, 500);
         }
-
-        return respuesta({ error: mensaje }, 500);
       }
-
-      authUserId = inviteData.user.id;
     }
 
     const { error: perfilError2 } = await adminClient
@@ -173,7 +188,7 @@ Deno.serve(async (req) => {
       }, { onConflict: "id" });
 
     if (perfilError2) {
-      if (!usuarioExistente && authUserId) {
+      if (!usuarioExistente && authUserId && correoPendiente) {
         await adminClient.auth.admin.deleteUser(authUserId);
       }
       return respuesta({ error: perfilError2.message }, 500);
@@ -200,13 +215,21 @@ Deno.serve(async (req) => {
       return respuesta({ error: "No se pudo actualizar el estado de la solicitud." }, 500);
     }
 
+    let mensaje = "Usuario existente asociado y autorizado.";
+
+    if (correoEnviado) {
+      mensaje = "Usuario autorizado y correo de invitación enviado.";
+    } else if (correoPendiente) {
+      mensaje = "Usuario autorizado. Supabase alcanzó el límite de emails, por lo que el correo de invitación quedó pendiente de envío. La solicitud ya no está pendiente.";
+    }
+
     return respuesta({
       ok: true,
       usuario_id: authUserId,
       solicitud: solicitudActualizada,
-      mensaje: usuarioExistente
-        ? "Usuario existente asociado y autorizado."
-        : "Usuario creado y correo de invitación enviado.",
+      correo_enviado: correoEnviado,
+      correo_pendiente: correoPendiente,
+      mensaje,
     });
   } catch (error) {
     return respuesta({ error: error instanceof Error ? error.message : String(error) }, 500);
