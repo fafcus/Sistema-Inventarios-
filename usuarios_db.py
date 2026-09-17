@@ -2,9 +2,6 @@
 usuarios_db.py
 
 Autenticación y gestión básica de perfiles/roles para el Sistema de Inventarios.
-
-Utiliza Supabase Auth para las credenciales y la tabla public.usuarios para
-obtener el nombre, rol y estado del usuario.
 """
 
 from config import supabase
@@ -43,23 +40,19 @@ PERMISOS = {
         "importar_word",
         "reescaneo_completo",
     },
+    # Consulta puede modificar cantidades de stock, pero no administrar
+    # materiales, importar Word ni administrar usuarios.
     "consulta": {
         "ver_inventario",
         "ver_historial",
         "generar_reportes",
+        "agregar_stock",
+        "retirar_stock",
     },
 }
 
 
 def iniciar_sesion(email, password):
-    """
-    Inicia sesión mediante Supabase Auth y devuelve el perfil de la tabla
-    usuarios junto con la sesión autenticada.
-
-    Devuelve:
-        dict con user, session y perfil
-    o None si las credenciales son incorrectas o el usuario no está activo.
-    """
     email = (email or "").strip()
 
     if not email or not password:
@@ -111,7 +104,6 @@ def iniciar_sesion(email, password):
 
 
 def cerrar_sesion():
-    """Cierra la sesión actual de Supabase."""
     try:
         supabase.auth.sign_out()
     except Exception:
@@ -119,11 +111,6 @@ def cerrar_sesion():
 
 
 def obtener_usuario_actual():
-    """
-    Obtiene el usuario actualmente autenticado y su perfil.
-
-    Devuelve None si no existe una sesión válida.
-    """
     try:
         usuario_auth = supabase.auth.get_user().user
 
@@ -160,19 +147,16 @@ def obtener_usuario_actual():
 
 
 def tiene_permiso(rol, permiso):
-    """Devuelve True si el rol posee el permiso indicado."""
     rol = str(rol or "").strip().lower()
     return permiso in PERMISOS.get(rol, set())
 
 
 def obtener_permisos(rol):
-    """Devuelve una copia del conjunto de permisos del rol."""
     rol = str(rol or "").strip().lower()
     return set(PERMISOS.get(rol, set()))
 
 
 def obtener_nombre_usuario(datos_usuario):
-    """Obtiene un nombre legible a partir de los datos de sesión."""
     if not datos_usuario:
         return ""
 
@@ -187,7 +171,6 @@ def obtener_nombre_usuario(datos_usuario):
 
 
 def obtener_rol_usuario(datos_usuario):
-    """Obtiene el rol normalizado del usuario actual."""
     if not datos_usuario:
         return None
 
