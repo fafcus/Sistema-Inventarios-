@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Activar cuenta - Sistema de Inventarios</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#f4f6f8;margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh;color:#202124}
+    .card{background:white;width:min(420px,90%);padding:32px;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.12)}
+    h1{font-size:24px;margin:0 0 8px}.muted{color:#666;font-size:14px;margin-bottom:24px}
+    label{display:block;font-size:14px;margin:14px 0 6px}input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #ccc;border-radius:8px;font-size:16px}
+    button{width:100%;margin-top:20px;padding:12px;border:0;border-radius:8px;background:#1769aa;color:white;font-size:16px;cursor:pointer}button:disabled{opacity:.6;cursor:not-allowed}
+    #estado{margin-top:16px;padding:10px;border-radius:8px;font-size:14px}.ok{background:#e8f5e9;color:#1b5e20}.error{background:#ffebee;color:#b71c1c}
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Activar cuenta</h1>
+    <p class="muted">Sistema de Inventarios</p>
+    <form id="formulario">
+      <label for="password">Nueva contraseña</label>
+      <input id="password" type="password" minlength="6" required autocomplete="new-password">
+      <label for="confirmacion">Repetir contraseña</label>
+      <input id="confirmacion" type="password" minlength="6" required autocomplete="new-password">
+      <button id="boton" type="submit">Activar cuenta</button>
+    </form>
+    <div id="estado" class="hidden"></div>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const SUPABASE_URL = "https://fhcdgungwwtleuioryrp.supabase.co";
+    const SUPABASE_ANON_KEY = "REEMPLAZAR_CON_LA_CLAVE_PUBLICABLE";
+    const cliente = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const formulario = document.getElementById("formulario");
+    const boton = document.getElementById("boton");
+    const estado = document.getElementById("estado");
+
+    function mostrar(texto, tipo){
+      estado.textContent = texto;
+      estado.className = tipo;
+    }
+
+    async function prepararSesion(){
+      const hash = new URLSearchParams(window.location.hash.substring(1));
+      const accessToken = hash.get("access_token");
+      const refreshToken = hash.get("refresh_token");
+      if (accessToken && refreshToken) {
+        const { error } = await cliente.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+        if (error) throw error;
+      }
+      const { data, error } = await cliente.auth.getSession();
+      if (error || !data.session) throw new Error("El enlace de invitación no es válido o ya venció.");
+    }
+
+    prepararSesion().catch(error => {
+      formulario.classList.add("hidden");
+      mostrar(error.message || "No se pudo validar la invitación.", "error");
+    });
+
+    formulario.addEventListener("submit", async event => {
+      event.preventDefault();
+      const password = document.getElementById("password").value;
+      const confirmacion = document.getElementById("confirmacion").value;
+      if (password.length < 6) return mostrar("La contraseña debe tener al menos 6 caracteres.", "error");
+      if (password !== confirmacion) return mostrar("Las contraseñas no coinciden.", "error");
+      boton.disabled = true;
+      mostrar("Activando cuenta...", "ok");
+      const { error } = await cliente.auth.updateUser({ password });
+      boton.disabled = false;
+      if (error) return mostrar(error.message, "error");
+      formulario.classList.add("hidden");
+      mostrar("Cuenta activada correctamente. Ya podés abrir el programa e iniciar sesión con tu email y contraseña.", "ok");
+    });
+  </script>
+</body>
+</html>
