@@ -9,11 +9,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 
 from config import supabase
-from relacion_transito_pdf import (
-    convertir_excel_a_pdf,
-    descontar_materiales_relacion,
-    RelacionTransitoPDFError,
-)
+from relacion_transito_pdf import convertir_excel_a_pdf, descontar_materiales_relacion, RelacionTransitoPDFError
 from supabase_db import obtener_materiales, obtener_stock_general_material
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -113,22 +109,13 @@ def _columna_observaciones(ws):
 def _fuentes_material(material_id):
     """Obtiene todas las ubicaciones y documentos donde aparece un material."""
     try:
-        respuesta = (
-            supabase.table("documento_items")
-            .select("documento_id,ubicacion,observaciones")
-            .eq("material_id", int(material_id))
-            .execute()
-        )
-        items = respuesta.data or []
+        items = (supabase.table("documento_items").select("documento_id,ubicacion,observaciones").eq("material_id", int(material_id)).execute().data or [])
         ids = sorted({int(x["documento_id"]) for x in items if x.get("documento_id") is not None})
         documentos = {}
         if ids:
             docs = supabase.table("documentos").select("id,nombre").in_("id", ids).execute().data or []
             documentos = {int(x["id"]): _texto(x.get("nombre")) for x in docs}
-
-        ubicaciones = []
-        origenes = []
-        observaciones = []
+        ubicaciones, origenes, observaciones = [], [], []
         for item in items:
             ubicacion = _texto(item.get("ubicacion"))
             if ubicacion and ubicacion != "-" and ubicacion not in ubicaciones:
@@ -199,7 +186,9 @@ def _seleccionar_materiales_desde_general(material_inicial):
         mid = material.get("id")
         if mid is None:
             continue
-        enriquecido = _enriquecer_material(material)
+        # No hacemos una consulta por cada fila: el enriquecimiento detallado
+        # se realiza solamente sobre los materiales finalmente seleccionados.
+        enriquecido = dict(material)
         por_id[str(mid)] = enriquecido
         try:
             stock = float(obtener_stock_general_material(mid) or 0)
@@ -233,17 +222,7 @@ def _seleccionar_materiales_desde_general(material_inicial):
             if stock <= 0:
                 messagebox.showwarning("Stock", f"'{_texto(material.get('material'))}' no tiene stock disponible.", parent=ventana)
                 return
-            cantidad = simpledialog.askfloat(
-                "Cantidad a llevar",
-                f"Material: {_texto(material.get('material'))}\n"
-                f"Código: {_texto(material.get('codigo'))}\n"
-                f"Ubicación: {_texto(material.get('ubicacion')) or '-'}\n"
-                f"Origen: {_texto(material.get('archivo_origen')) or '-'}\n"
-                f"Stock disponible: {_numero(stock)}\n\nCantidad a llevar:",
-                minvalue=0.0001,
-                maxvalue=stock,
-                parent=ventana,
-            )
+            cantidad = simpledialog.askfloat("Cantidad a llevar", f"Material: {_texto(material.get('material'))}\nCódigo: {_texto(material.get('codigo'))}\nUbicación: {_texto(material.get('ubicacion')) or '-'}\nOrigen: {_texto(material.get('archivo_origen')) or '-'}\nStock disponible: {_numero(stock)}\n\nCantidad a llevar:", minvalue=0.0001, maxvalue=stock, parent=ventana)
             if cantidad is None:
                 return
             copia = dict(material)
@@ -271,22 +250,12 @@ def _seleccionar_materiales_desde_general(material_inicial):
     return resultado
 
 
-def generar_relacion_transito(
-    materiales: Iterable[Mapping],
-    salida: str | Path,
-    tipo_movimiento: str = "",
-    destino: str = "",
-    transporte: str = "",
-    fecha: datetime | str | None = None,
-    plantilla: str | Path | None = None,
-    usuario: str | None = None,
-) -> Path:
+def generar_relacion_transito(materiales: Iterable[Mapping], salida: str | Path, tipo_movimiento: str = "", destino: str = "", transporte: str = "", fecha: datetime | str | None = None, plantilla: str | Path | None = None, usuario: str | None = None) -> Path:
     """Genera Excel/PDF y descuenta el stock retirado con trazabilidad."""
     materiales = list(materiales or [])
 
     # El selector principal de main.py ya arma la lista completa. Este selector
-    # interno queda solamente como compatibilidad para llamadas antiguas que
-    # entregaban un único registro de documento.
+    # interno queda solamente como compatibilidad para llamadas antiguas.
     if len(materiales) == 1 and materiales[0].get("_usar_selector_general"):
         materiales = _seleccionar_materiales_desde_general(materiales[0])
 
@@ -356,15 +325,7 @@ def generar_relacion_transito(
             detalles.append("Obs.: " + " / ".join(observaciones_fuente))
         observaciones = " | ".join(detalles)
 
-        valores = {
-            1: indice,
-            2: _numero(material.get("cantidad")),
-            3: _texto(material.get("material")),
-            4: _texto(material.get("marca")),
-            5: _texto(material.get("numero_serie")),
-            6: _texto(material.get("numero_parte")) or _texto(material.get("codigo")),
-            columna_obs: observaciones,
-        }
+        valores = {1: indice, 2: _numero(material.get("cantidad")), 3: _texto(material.get("material")), 4: _texto(material.get("marca")), 5: _texto(material.get("numero_serie")), 6: _texto(material.get("numero_parte")) or _texto(material.get("codigo")), columna_obs: observaciones}
         for columna, valor in valores.items():
             _asignar_valor_fila(ws, fila, columna, valor)
         _celda_escritura(ws, ws.cell(fila, columna_obs).coordinate).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
@@ -398,24 +359,8 @@ def generar_relacion_transito(
     return salida
 
 
-def generar_desde_inventario(
-    materiales: Iterable[Mapping],
-    carpeta_salida: str | Path,
-    tipo_movimiento: str = "",
-    destino: str = "",
-    transporte: str = "",
-    fecha: datetime | str | None = None,
-    usuario: str | None = None,
-) -> Path:
+def generar_desde_inventario(materiales: Iterable[Mapping], carpeta_salida: str | Path, tipo_movimiento: str = "", destino: str = "", transporte: str = "", fecha: datetime | str | None = None, usuario: str | None = None) -> Path:
     carpeta_salida = Path(carpeta_salida)
     marca_fecha = datetime.now().strftime("%Y%m%d_%H%M%S")
     salida = carpeta_salida / f"RELACION DE TRANSITO_{marca_fecha}.xlsx"
-    return generar_relacion_transito(
-        materiales=materiales,
-        salida=salida,
-        tipo_movimiento=tipo_movimiento,
-        destino=destino,
-        transporte=transporte,
-        fecha=fecha,
-        usuario=usuario,
-    )
+    return generar_relacion_transito(materiales=materiales, salida=salida, tipo_movimiento=tipo_movimiento, destino=destino, transporte=transporte, fecha=fecha, usuario=usuario)
