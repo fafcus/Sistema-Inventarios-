@@ -12,8 +12,7 @@ SUPABASE_KEY = "sb_publishable_1DBt3sgPyZijNHN9vR9RKg_Y40VjqR7"
 # [WinError 10035] No se puede completar de forma inmediata una operación
 # de desbloqueo de socket.
 #
-# Usamos HTTP/1.1 explícitamente para evitar ese problema y mantenemos
-# un único cliente HTTP reutilizable para toda la aplicación.
+# Usamos HTTP/1.1 explícitamente y un único cliente HTTP reutilizable.
 http_client = httpx.Client(
     http2=False,
     timeout=httpx.Timeout(
