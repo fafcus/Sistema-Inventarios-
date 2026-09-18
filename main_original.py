@@ -3003,7 +3003,10 @@ def crear_interfaz():
     root.after(
         1500,
         lambda:
-        ejecutar_importacion_word(False),
+        ejecutar_importacion_word(
+            False,
+            mostrar_resultado=False,
+        ),
     )
 
     root.mainloop()
