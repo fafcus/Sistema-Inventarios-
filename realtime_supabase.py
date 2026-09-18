@@ -16,7 +16,6 @@ from supabase import acreate_client
 TABLAS_INVENTARIO = (
     "materiales",
     "documentos",
-    "documento_items",
     "movimientos",
     "ajustes_stock",
 )
