@@ -19,54 +19,41 @@ def _numero_float(valor):
 
 def abrir_selector_relacion_transito(app):
     """Selector completo de materiales para generar una relación de tránsito."""
-    # El stock de la Relación de Tránsito se calcula por origen real:
-    # documento_items + ajustes del documento. No usamos el stock global de
-    # materiales, porque un mismo material puede existir en varios archivos.
+    # El stock se obtiene directamente de material_ubicaciones.
+    # Cada fila representa un origen exacto del inventario.
+    from inventario_db import obtener_inventario_por_ubicacion
+
     materiales = []
-    documentos = app.obtener_documentos_cache() or []
-    materiales_cache = app.obtener_materiales_cache() or []
-    materiales_por_id = {
-        m.get("id"): m
-        for m in materiales_cache
-        if m.get("id") is not None
-    }
+    try:
+        filas = obtener_inventario_por_ubicacion() or []
+        materiales_cache = app.obtener_materiales_cache() or []
+        materiales_por_id = {m.get("id"): m for m in materiales_cache if m.get("id") is not None}
+        documentos = app.obtener_documentos_cache() or []
+        documentos_por_id = {d.get("id"): d for d in documentos if d.get("id") is not None}
 
-    for documento in documentos:
-        documento_id = documento.get("id")
-        if documento_id is None:
-            continue
-        try:
-            items = app.obtener_items_documento(documento_id) or []
-        except Exception as error:
-            print(f"Error cargando items del documento {documento_id}: {error}")
-            continue
-
-        nombre_documento = str(documento.get("nombre") or "").strip()
-        if not nombre_documento:
-            nombre_documento = str(documento.get("ruta") or "").replace("\\\\", "/").rsplit("/", 1)[-1]
-
-        for item in items:
-            stock = _numero_float(item.get("cantidad"))
+        for fila in filas:
+            stock = _numero_float(fila.get("cantidad"))
             if stock <= 0:
                 continue
+            documento_id = fila.get("documento_id")
+            documento = documentos_por_id.get(documento_id) or {}
+            nombre_documento = str(documento.get("nombre") or "").strip()
+            if not nombre_documento:
+                nombre_documento = str(documento.get("ruta") or "").replace("\\\\", "/").rsplit("/", 1)[-1]
 
-            material_id = item.get("material_id")
-            base = dict(materiales_por_id.get(material_id) or {})
-            fila = {**base, **item}
-            fila["id"] = material_id
-            fila["cantidad"] = stock
-            fila["archivo_origen"] = nombre_documento or "-"
-            fila["ubicacion"] = str(item.get("ubicacion") or base.get("ubicacion") or "").strip()
-            fila["_documento_item_id"] = item.get("id")
-            fila["_documento_id"] = documento_id
-            fila["_stock_origen"] = stock
-            fila["_origen_clave"] = f"{documento_id}:{item.get('id')}"
-            materiales.append(fila)
+            base = dict(materiales_por_id.get(fila.get("material_id")) or {})
+            base["id"] = fila.get("material_id")
+            base["cantidad"] = stock
+            base["ubicacion"] = str(fila.get("ubicacion") or base.get("ubicacion") or "").strip()
+            base["archivo_origen"] = nombre_documento or "-"
+            base["_material_ubicacion_id"] = fila.get("id")
+            base["_documento_id"] = documento_id
+            base["_stock_origen"] = stock
+            base["_origen_clave"] = f"{documento_id}:{fila.get('id')}"
+            materiales.append(base)
+    except Exception as error:
+        raise RuntimeError(f"No se pudo cargar el inventario para la Relación de Tránsito: {error}") from error
 
-    materiales = [
-        m for m in materiales
-        if _numero_float(m.get("_stock_origen")) > 0
-    ]
 
     ventana = tk.Toplevel(app.root)
     ventana.title("Generar Relación de Tránsito")
