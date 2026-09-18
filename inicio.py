@@ -113,7 +113,7 @@ def abrir_admin_permisos(parent):
 def ejecutar_aplicacion(datos_usuario):
     import main as app
     perfil = datos_usuario.get("perfil") or {}
-    rol = obtener_rol_usuario(datos_usuario)
+    rol = obtener_rol_usuario(datos_usuario) or str(perfil.get("rol") or "").strip().lower()
     nombre = obtener_nombre_usuario(datos_usuario) or perfil.get("email") or "Usuario"
     app.USUARIO_ACTUAL = datos_usuario
     app.USUARIO_NOMBRE = nombre
@@ -183,7 +183,7 @@ def ejecutar_aplicacion(datos_usuario):
     app.crear_interfaz()
 
     # Barra administrativa visible solo para administradores.
-    if rol == "administrador":
+    if str(rol or "").strip().lower() == "administrador":
         try:
             from admin_usuarios import abrir_admin_usuarios
             from permisos_documentos import abrir_admin_permisos
