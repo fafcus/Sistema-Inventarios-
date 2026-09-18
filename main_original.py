@@ -1863,6 +1863,7 @@ def monitor_sincronizacion():
 
 def ejecutar_importacion_word(
     reescaneo_completo=False,
+    mostrar_resultado=True,
 ):
 
     global importacion_en_curso
@@ -1953,8 +1954,7 @@ def ejecutar_importacion_word(
 
             traceback.print_exc()
 
-            root.after(
-                0,
+            ejecutar_en_ui(
                 lambda error=error:
                 messagebox.showerror(
                     "Error",
@@ -1962,7 +1962,7 @@ def ejecutar_importacion_word(
                     "la importación:\n\n"
                     f"{error}",
                     parent=root,
-                ),
+                )
             )
 
         finally:
@@ -1972,8 +1972,7 @@ def ejecutar_importacion_word(
 
             ejecutar_en_ui(actualizar_interfaz_por_sincronizacion)
 
-            if resultado is not None:
-
+            if resultado is not None and mostrar_resultado:
                 ejecutar_en_ui(mostrar_resultado_importacion, resultado)
 
     threading.Thread(
