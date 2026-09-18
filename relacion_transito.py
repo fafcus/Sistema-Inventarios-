@@ -171,7 +171,7 @@ def _obtener_filas_origen(material):
         fila["archivo_origen"] = _texto(origen.get("archivo_origen"))
         fila["ubicacion"] = _texto(origen.get("ubicacion")) or _texto(material.get("ubicacion"))
         fila["_stock_origen"] = stock
-        fila["_origen_clave"] = f"{origen.get('documento_id')}:{origen.get('documento_item_id')}"
+        fila["_origen_clave"] = f"{origen.get('documento_id')}:{origen.get('material_ubicacion_id')}"
         filas.append(fila)
     return filas
 
@@ -236,7 +236,7 @@ def _seleccionar_materiales_desde_general(material_inicial):
             filas_iniciales.extend(origenes)
             continue
 
-        # Materiales creados manualmente pueden no tener documento_item.
+        # Materiales creados manualmente pueden no tener un origen de ubicación.
         try:
             stock = float(obtener_stock_general_material(material.get("id")) or 0)
         except Exception:
