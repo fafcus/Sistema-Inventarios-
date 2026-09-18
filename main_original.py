@@ -14,13 +14,9 @@ from supabase_db import (
     obtener_material,
     crear_material,
     actualizar_material,
-    actualizar_cantidad_documento_item,
     obtener_movimientos,
     obtener_documentos,
-    obtener_items_documento,
-    crear_item_documento,
     buscar_material,
-    eliminar_material_del_documento,
 )
 import reportes
 from relacion_transito import RelacionTransitoError, generar_relacion_transito
