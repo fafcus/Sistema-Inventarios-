@@ -26,6 +26,24 @@ def obtener_ubicaciones_material(material_id):
     return data
 
 
+def obtener_inventario_documento(documento_id):
+    """Obtiene el inventario de un inventario lógico concreto desde Supabase."""
+    data = (
+        supabase.table("material_ubicaciones")
+        .select("*")
+        .eq("documento_id", int(documento_id))
+        .order("id")
+        .execute()
+        .data
+        or []
+    )
+
+    for fila in data:
+        fila["cantidad"] = _float(fila.get("cantidad"))
+
+    return data
+
+
 def obtener_inventario_por_ubicacion():
     """Obtiene todo el inventario almacenado en la base, agrupado por ubicación."""
     data = (
