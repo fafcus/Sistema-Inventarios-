@@ -40,89 +40,43 @@ def _nombre_documento(documento) -> str:
 
 
 def obtener_origenes_material(material_id):
-    """Devuelve los orígenes/documentos con stock disponible de un material.
-
-    Cada elemento identifica un documento_items mediante documento_item_id y
-    documento_id. El stock se calcula como cantidad base del item más los
-    ajustes asociados a ese documento y material.
-    """
+    """Devuelve los orígenes reales desde material_ubicaciones."""
     try:
         material_id = int(material_id)
     except (TypeError, ValueError):
         return []
 
-    items = (
-        supabase.table("documento_items")
-        .select("*")
+    filas = (
+        supabase.table("material_ubicaciones")
+        .select("id,material_id,documento_id,ubicacion,cantidad")
         .eq("material_id", material_id)
+        .gt("cantidad", 0)
         .order("id")
         .execute()
         .data
         or []
     )
-
-    if not items:
+    if not filas:
         return []
 
-    documento_ids = sorted({
-        int(item["documento_id"])
-        for item in items
-        if item.get("documento_id") is not None
-    })
-
+    documento_ids = sorted({int(f["documento_id"]) for f in filas if f.get("documento_id") is not None})
     documentos = {}
     if documento_ids:
-        docs = (
-            supabase.table("documentos")
-            .select("*")
-            .in_("id", documento_ids)
-            .execute()
-            .data
-            or []
-        )
-        documentos = {int(doc["id"]): doc for doc in docs if doc.get("id") is not None}
-
-    ajustes_por_documento = {}
-    if documento_ids:
-        ajustes = (
-            supabase.table("ajustes_stock")
-            .select("documento_id,material_id,cantidad")
-            .eq("material_id", material_id)
-            .in_("documento_id", documento_ids)
-            .execute()
-            .data
-            or []
-        )
-        for ajuste in ajustes:
-            documento_id = ajuste.get("documento_id")
-            if documento_id is None:
-                continue
-            documento_id = int(documento_id)
-            ajustes_por_documento[documento_id] = (
-                ajustes_por_documento.get(documento_id, 0.0)
-                + _float(ajuste.get("cantidad"))
-            )
+        docs = supabase.table("documentos").select("id,nombre").in_("id", documento_ids).execute().data or []
+        documentos = {int(d["id"]): d for d in docs if d.get("id") is not None}
 
     resultado = []
-    for item in items:
-        documento_id = item.get("documento_id")
+    for fila in filas:
+        documento_id = fila.get("documento_id")
         if documento_id is None:
             continue
         documento_id = int(documento_id)
-
-        stock = _float(item.get("cantidad")) + ajustes_por_documento.get(documento_id, 0.0)
-        if stock <= 0.000001:
-            continue
-
-        documento = documentos.get(documento_id, {})
-        origen = {
-            "documento_item_id": item.get("id"),
+        resultado.append({
+            "material_ubicacion_id": fila.get("id"),
             "documento_id": documento_id,
-            "archivo_origen": _nombre_documento(documento),
-            "ubicacion": _texto(item.get("ubicacion")),
-            "observaciones": _texto(item.get("observaciones")),
-            "stock_disponible": stock,
-        }
-        resultado.append(origen)
-
+            "archivo_origen": _nombre_documento(documentos.get(documento_id, {})),
+            "ubicacion": _texto(fila.get("ubicacion")),
+            "observaciones": "",
+            "stock_disponible": _float(fila.get("cantidad")),
+        })
     return resultado
