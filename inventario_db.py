@@ -105,6 +105,53 @@ def crear_material_en_inventario(documento_id, datos, usuario=None):
     return {**nuevo, "ubicacion": ubicacion, "cantidad_inventario": cantidad}
 
 
+def eliminar_material_del_inventario(documento_id, material_id):
+    """Elimina solo la ubicación del material del inventario seleccionado.
+
+    No modifica Word ni elimina el material global ni su historial.
+    """
+    documento_id = int(documento_id)
+    material_id = int(material_id)
+
+    filas = (
+        supabase.table("material_ubicaciones")
+        .select("id")
+        .eq("documento_id", documento_id)
+        .eq("material_id", material_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not filas:
+        raise ValueError("El material no pertenece al inventario seleccionado.")
+
+    data = (
+        supabase.table("material_ubicaciones")
+        .delete()
+        .eq("id", filas[0]["id"])
+        .execute()
+        .data
+        or []
+    )
+    if not data:
+        raise ValueError("No se pudo eliminar el material del inventario.")
+
+    restantes = (
+        supabase.table("material_ubicaciones")
+        .select("id", count="exact")
+        .eq("material_id", material_id)
+        .execute()
+    )
+    cantidad_inventarios = getattr(restantes, "count", None)
+    return {
+        "eliminado": True,
+        "material_id": material_id,
+        "documento_id": documento_id,
+        "material_con_otros_inventarios": (cantidad_inventarios or 0) > 0,
+    }
+
+
 def actualizar_material_en_inventario(material_id, documento_id, datos):
     """Actualiza datos del material y su ubicación dentro del inventario seleccionado."""
     from supabase_db import actualizar_material
