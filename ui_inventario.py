@@ -8,7 +8,7 @@ el módulo de aplicación recibido como argumento.
 import tkinter as tk
 from tkinter import ttk
 
-_NOMBRES = ["root","tabla","tabla_movimientos","entrada_busqueda","lbl_total_materiales","lbl_con_stock","lbl_sin_stock","lbl_cantidad_total","lbl_progreso","marco_contenido","marco_selector","inventario_seleccionado","inventario_seleccionado_id","COLOR_FONDO","COLOR_PANEL","COLOR_AZUL_OSCURO","COLOR_AZUL","COLOR_AZUL_CLARO","COLOR_BORDE","COLOR_TEXTO","COLOR_TEXTO_SECUNDARIO","COLOR_STOCK_FONDO","COLOR_SIN_STOCK_FONDO","COLOR_STOCK","COLOR_SIN_STOCK","buscar","actualizar_tabla","nuevo_material","editar_material","eliminar_material","agregar_stock","retirar_stock","abrir_reportes","generar_relacion_transito_ui","actualizar_todo","importar_word_manual","reescaneo_completo","cargar_inventario_seleccionado","volver_a_seleccion"]
+_NOMBRES = ["root","tabla","tabla_movimientos","entrada_busqueda","lbl_total_materiales","lbl_con_stock","lbl_sin_stock","lbl_cantidad_total","lbl_progreso","marco_contenido","marco_selector","inventario_seleccionado","inventario_seleccionado_id","COLOR_FONDO","COLOR_PANEL","COLOR_AZUL_OSCURO","COLOR_AZUL","COLOR_AZUL_CLARO","COLOR_BORDE","COLOR_TEXTO","COLOR_TEXTO_SECUNDARIO","COLOR_STOCK_FONDO","COLOR_SIN_STOCK_FONDO","COLOR_STOCK","COLOR_SIN_STOCK","buscar","actualizar_tabla","nuevo_material","editar_material","eliminar_material","agregar_stock","retirar_stock","abrir_reportes","generar_relacion_transito_ui","actualizar_todo","cargar_inventario_seleccionado","volver_a_seleccion"]
 _ESTADO = ["root","tabla","tabla_movimientos","entrada_busqueda","lbl_total_materiales","lbl_con_stock","lbl_sin_stock","lbl_cantidad_total","lbl_progreso","marco_contenido","marco_selector"]
 
 def _construir_pantalla_inventario():
@@ -216,24 +216,6 @@ def _construir_pantalla_inventario():
             side="left",
             padx=3,
         )
-
-    ttk.Button(
-        buttons,
-        text="📄 Importar Word",
-        command=importar_word_manual,
-    ).pack(
-        side="right",
-        padx=3,
-    )
-
-    ttk.Button(
-        buttons,
-        text="🧹 Reescaneo completo",
-        command=reescaneo_completo,
-    ).pack(
-        side="right",
-        padx=3,
-    )
 
     lbl_progreso = ttk.Label(
         marco_contenido,
