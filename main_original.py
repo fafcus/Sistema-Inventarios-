@@ -8,8 +8,6 @@ import threading
 import time
 import queue
 import traceback
-from word_document_utils import _agregar_fila_word, _eliminar_fila_word
-
 from supabase_db import (
     probar_conexion,
     obtener_materiales,
