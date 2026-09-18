@@ -30,7 +30,7 @@ from relacion_transito import RelacionTransitoError, generar_relacion_transito
 from realtime_supabase import iniciar_realtime
 from ui_relacion_transito import abrir_selector_relacion_transito
 from ui_inventario import construir_pantalla_inventario as construir_pantalla_inventario_ui
-from inventario_db import obtener_inventario_documento, actualizar_stock_inventario, crear_material_en_inventario, actualizar_material_en_inventario
+from inventario_db import obtener_inventario_documento, actualizar_stock_inventario, crear_material_en_inventario, actualizar_material_en_inventario, eliminar_material_del_inventario
 
 # ============================================================
 # CONFIGURACIÓN
@@ -1003,197 +1003,62 @@ def editar_material():
 
 def eliminar_material():
 
-    global importacion_en_curso
-    global estado_archivos_word
-
     material = obtener_material_seleccionado()
-
     if not material:
         return
 
-    documento = obtener_documento_actual()
-
-    if not documento:
-
-        messagebox.showerror(
-            "Error",
-            "No se encontró el inventario seleccionado.",
-            parent=root,
-        )
-
+    documento_id = obtener_documento_id_actual()
+    if not documento_id:
+        messagebox.showerror("Error", "No se encontró el inventario seleccionado.", parent=root)
         return
 
     material_id = material.get("id")
-
     if material_id is None:
-
-        messagebox.showerror(
-            "Error",
-            "El material seleccionado no tiene un ID válido.",
-            parent=root,
-        )
-
+        messagebox.showerror("Error", "El material seleccionado no tiene un ID válido.", parent=root)
         return
 
-    nombre = (
-        material.get("material")
-        or ""
-    )
-
-    codigo = (
-        material.get("codigo")
-        or "-"
-    )
-
-    unidad = (
-        material.get("unidad")
-        or ""
-    )
-
+    nombre = material.get("material") or ""
+    codigo = material.get("codigo") or "-"
+    unidad = material.get("unidad") or ""
     try:
-
-        cantidad = float(
-            material.get(
-                "cantidad",
-                0,
-            )
-            or 0
-        )
-
+        cantidad = float(material.get("cantidad", 0) or 0)
     except Exception:
-
         cantidad = 0
 
     confirmar = messagebox.askyesno(
         "Eliminar material",
-
-        f"¿Eliminar este material del inventario "
-        f"y del archivo Word?\n\n"
-
-        f"Código: {codigo}\n"
-        f"Material: {nombre}\n"
-        f"Cantidad: "
-        f"{formatear_numero(cantidad)} "
-        f"{unidad}\n\n"
-
-        f"El material será eliminado del inventario "
-        f"seleccionado y del Word.\n\n"
-
-        f"El historial de movimientos se conservará.",
-
+        f"¿Eliminar este material del inventario seleccionado?\\n\\n"
+        f"Código: {codigo}\\nMaterial: {nombre}\\n"
+        f"Cantidad: {formatear_numero(cantidad)} {unidad}\\n\\n"
+        "El material se quitará de este inventario, pero no se eliminará de la base general ni del historial.\\n\\n"
+        "El archivo Word no será modificado.",
         parent=root,
     )
-
     if not confirmar:
         return
 
-    with lock_importacion:
-
-        if importacion_en_curso:
-
-            messagebox.showinfo(
-                "Importación",
-                "Hay una importación de Word en curso. "
-                "Esperá a que termine.",
-                parent=root,
-            )
-
-            return
-
-        importacion_en_curso = True
-
     try:
-
-        ruta = _eliminar_fila_word(
-            documento,
-            material,
-        )
-
-        resultado = (
-            eliminar_material_del_documento(
-                documento["id"],
-                material_id,
-            )
-        )
-
-        try:
-
-            from supabase_db import (
-                actualizar_documento
-            )
-
-            if ruta.exists():
-
-                actualizar_documento(
-                    documento["id"],
-                    ruta.stat().st_mtime,
-                )
-
-        except Exception:
-
-            pass
-
-        try:
-
-            estado_archivos_word[
-                str(ruta.resolve())
-            ] = ruta.stat().st_mtime
-
-        except Exception:
-
-            pass
-
+        resultado = eliminar_material_del_inventario(documento_id, material_id)
         invalidar_cache()
-
         actualizar_todo(True)
 
-        if (
-            isinstance(resultado, dict)
-            and resultado.get(
-                "material_eliminado"
-            )
-        ):
-
-            mensaje = (
-                f"Se eliminó correctamente:\n\n"
-                f"{nombre}\n\n"
-                f"✓ Eliminado del Word\n"
-                f"✓ Eliminado del inventario\n"
-                f"✓ Eliminado de la base general\n"
-                f"✓ Historial de movimientos conservado"
-            )
-
+        if resultado.get("material_con_otros_inventarios"):
+            detalle = "El material continúa disponible en otros inventarios."
         else:
-
-            mensaje = (
-                f"Se eliminó correctamente:\n\n"
-                f"{nombre}\n\n"
-                f"✓ Eliminado del Word\n"
-                f"✓ Eliminado del inventario seleccionado\n"
-                f"✓ El material continúa en otros inventarios\n"
-                f"✓ Historial de movimientos conservado"
-            )
+            detalle = "El material queda conservado en la base general y en el historial, aunque ya no tiene stock asociado a inventarios."
 
         messagebox.showinfo(
             "Material eliminado",
-            mensaje,
+            f"Se eliminó correctamente:\\n\\n{nombre}\\n\\n"
+            f"✓ Eliminado del inventario seleccionado\\n"
+            f"✓ Word no modificado\\n"
+            f"✓ Base general conservada\\n"
+            f"✓ Historial de movimientos conservado\\n\\n{detalle}",
             parent=root,
         )
-
     except Exception as error:
-
         traceback.print_exc()
-
-        messagebox.showerror(
-            "Error",
-            f"No se pudo eliminar el material:\n\n"
-            f"{error}",
-            parent=root,
-        )
-
-    finally:
-
-        importacion_en_curso = False
+        messagebox.showerror("Error", f"No se pudo eliminar el material:\\n\\n{error}", parent=root)
 
 
 # ============================================================
