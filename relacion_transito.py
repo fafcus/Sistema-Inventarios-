@@ -144,7 +144,7 @@ def _enriquecer_material(material):
 
     # Una fila elegida desde el selector ya identifica exactamente su origen.
     # No debemos reemplazarlo por la lista global de fuentes del material.
-    if copia.get("_documento_item_id") is not None or copia.get("_documento_id") is not None:
+    if copia.get("_material_ubicacion_id") is not None or copia.get("_documento_id") is not None:
         return copia
 
     ubicaciones, origenes, observaciones = _fuentes_material(copia["id"])
@@ -174,7 +174,7 @@ def _obtener_filas_origen(material):
         if stock <= 0:
             continue
         fila = dict(material)
-        fila["_documento_item_id"] = origen.get("documento_item_id")
+        fila["_material_ubicacion_id"] = origen.get("material_ubicacion_id")
         fila["_documento_id"] = origen.get("documento_id")
         fila["archivo_origen"] = _texto(origen.get("archivo_origen"))
         fila["ubicacion"] = _texto(origen.get("ubicacion")) or _texto(material.get("ubicacion"))
@@ -340,7 +340,7 @@ def generar_relacion_transito(
 
     # main.py entrega actualmente un material global sin cantidad/origen.
     # Abrimos aquí el selector por origen para mantener intacta la interfaz principal.
-    if len(materiales) == 1 and not materiales[0].get("_documento_item_id"):
+    if len(materiales) == 1 and not materiales[0].get("_material_ubicacion_id"):
         materiales = _seleccionar_materiales_desde_general(materiales[0])
 
     plantilla = Path(plantilla or PLANTILLA_RELACION_TRANSITO)
