@@ -185,39 +185,48 @@ def ejecutar_aplicacion(datos_usuario):
     app.generar_relacion_transito_ui = lambda: abrir_selector_relacion_transito(app)
 
     def agregar_controles_admin():
-        # Se ejecuta dentro del hilo principal, después de crear la ventana.
-            if str(rol or "").strip().lower() == "administrador":
-                try:
-                    from admin_usuarios import abrir_admin_usuarios
-                    from permisos_documentos import abrir_admin_permisos
-        
-                    barra_admin = ttk.Frame(app.root, padding=(10, 6))
-                    barra_admin.pack(fill="x", before=app.root.winfo_children()[-1])
-        
-                    ttk.Label(
-                        barra_admin,
-                        text="Administración:",
-                        font=("Segoe UI", 9, "bold"),
-                    ).pack(side="left", padx=(4, 10))
-        
-                    ttk.Button(
-                        barra_admin,
-                        text="👥 Usuarios",
-                        command=lambda: abrir_admin_usuarios(app.root, nombre),
-                    ).pack(side="left", padx=4)
-        
-                    ttk.Button(
-                        barra_admin,
-                        text="🔐 Permisos",
-                        command=lambda: abrir_admin_permisos(app.root),
-                    ).pack(side="left", padx=4)
-                except Exception:
-                    traceback.print_exc()
+        # main.py es una fachada: la ventana real pertenece a main_original.py.
+        # Este callback se ejecuta durante crear_interfaz(), después de crear core.root.
+        if str(rol or "").strip().lower() != "administrador":
+            return
+        try:
+            from admin_usuarios import abrir_admin_usuarios
+            from permisos_documentos import abrir_admin_permisos
+
+            root_app = core.root
+            if root_app is None:
+                return
+
+            barra_admin = ttk.Frame(root_app, padding=(10, 6))
+            barra_admin.pack(fill="x")
+
+            ttk.Label(
+                barra_admin,
+                text="Administración:",
+                font=("Segoe UI", 9, "bold"),
+            ).pack(side="left", padx=(4, 10))
+
+            ttk.Button(
+                barra_admin,
+                text="👥 Usuarios",
+                command=lambda: abrir_admin_usuarios(root_app, nombre),
+            ).pack(side="left", padx=4)
+
+            ttk.Button(
+                barra_admin,
+                text="🔐 Permisos",
+                command=lambda: abrir_admin_permisos(root_app),
+            ).pack(side="left", padx=4)
+        except Exception:
+            traceback.print_exc()
 
     core.ADMIN_UI_HOOK = agregar_controles_admin
     app.crear_interfaz()
     try:
-        root = app.root
+        # La ventana real se crea en main_original.py.
+        root = core.root
+        # Sincronizamos también la referencia de la fachada.
+        app.root = root
         def cerrar():
             try:
                 try:
