@@ -112,13 +112,17 @@ def abrir_admin_permisos(parent):
 
 def ejecutar_aplicacion(datos_usuario):
     import main as app
+    import main_original as core
     perfil = datos_usuario.get("perfil") or {}
     rol = obtener_rol_usuario(datos_usuario) or str(perfil.get("rol") or "").strip().lower()
     nombre = obtener_nombre_usuario(datos_usuario) or perfil.get("email") or "Usuario"
-    app.USUARIO_ACTUAL = datos_usuario
-    app.USUARIO_NOMBRE = nombre
-    app.USUARIO_ROL = rol
-    app.REALTIME_SESSION = datos_usuario.get("session")
+    # main.py es una fachada; las variables reales viven en main_original.py.
+    # Configuramos ambos módulos para que el rol llegue a la lógica principal.
+    for modulo in (app, core):
+        modulo.USUARIO_ACTUAL = datos_usuario
+        modulo.USUARIO_NOMBRE = nombre
+        modulo.USUARIO_ROL = rol
+        modulo.REALTIME_SESSION = datos_usuario.get("session")
 
     def proteger(nombre_permiso, funcion):
         def wrapper(*args, **kwargs):
@@ -210,7 +214,7 @@ def ejecutar_aplicacion(datos_usuario):
                 except Exception:
                     traceback.print_exc()
 
-    app.ADMIN_UI_HOOK = agregar_controles_admin
+    core.ADMIN_UI_HOOK = agregar_controles_admin
     app.crear_interfaz()
     try:
         root = app.root
