@@ -647,21 +647,9 @@ def agregar_stock():
     unidad = material.get("unidad") or ""
     codigo = material.get("codigo") or "-"
 
-    item = obtener_item_documento(mid)
-
-    if item is None:
-
-        messagebox.showerror(
-            "Error",
-            "El material no pertenece al inventario seleccionado.",
-            parent=root,
-        )
-
-        return
-
-    stock = float(
-        item.get("cantidad", 0) or 0
-    )
+    # El material seleccionado ya proviene de material_ubicaciones
+    # del inventario actual; usamos ese stock directamente.
+    stock = float(material.get("cantidad", 0) or 0)
 
     cantidad = simpledialog.askfloat(
         "Agregar stock",
