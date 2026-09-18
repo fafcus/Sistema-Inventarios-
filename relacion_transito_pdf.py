@@ -5,20 +5,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-rom __future__ import annotations
-
-import os
-import shutil
-import subprocess
-from pathlib import Path
-
-from supabase_db import (
-    agregar_ajuste_stock,
-    obtener_stock_general_material,
-    obtener_stock_documento_material,
-    actualizar_cantidad_documento_item,
-)
-
 
 class RelacionTransitoPDFError(Exception):
     """Error controlado al generar el PDF de una relación de tránsito."""
