@@ -180,13 +180,6 @@ def ejecutar_aplicacion(datos_usuario):
 
     app.generar_relacion_transito_ui = lambda: abrir_selector_relacion_transito(app)
 
-    if rol == "administrador":
-        funcion_cabecera_original = app.crear_cabecera
-        def crear_cabecera_con_usuarios():
-            funcion_cabecera_original()
-            agregar_boton_administracion(app, nombre)
-        app.crear_cabecera = crear_cabecera_con_usuarios
-
     app.crear_interfaz()
     try:
         root = app.root
