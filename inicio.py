@@ -118,6 +118,7 @@ def ejecutar_aplicacion(datos_usuario):
     app.USUARIO_ACTUAL = datos_usuario
     app.USUARIO_NOMBRE = nombre
     app.USUARIO_ROL = rol
+    app.REALTIME_SESSION = datos_usuario.get("session")
 
     def proteger(nombre_permiso, funcion):
         def wrapper(*args, **kwargs):
@@ -191,6 +192,10 @@ def ejecutar_aplicacion(datos_usuario):
         root = app.root
         def cerrar():
             try:
+                try:
+                    app.detener_realtime()
+                except Exception:
+                    pass
                 cerrar_sesion()
             finally:
                 root.destroy()
