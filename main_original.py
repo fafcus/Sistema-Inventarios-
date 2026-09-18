@@ -30,7 +30,7 @@ from relacion_transito import RelacionTransitoError, generar_relacion_transito
 from realtime_supabase import iniciar_realtime
 from ui_relacion_transito import abrir_selector_relacion_transito
 from ui_inventario import construir_pantalla_inventario as construir_pantalla_inventario_ui
-from inventario_db import obtener_inventario_documento, actualizar_stock_inventario, crear_material_en_inventario
+from inventario_db import obtener_inventario_documento, actualizar_stock_inventario, crear_material_en_inventario, actualizar_material_en_inventario
 
 # ============================================================
 # CONFIGURACIÓN
@@ -929,20 +929,12 @@ def nuevo_material():
 def editar_material():
 
     material = obtener_material_seleccionado()
-
     if not material:
         return
 
     ventana = tk.Toplevel(root)
-
-    ventana.title(
-        "Editar material"
-    )
-
-    ventana.geometry(
-        "520x500"
-    )
-
+    ventana.title("Editar material")
+    ventana.geometry("520x500")
     ventana.transient(root)
     ventana.grab_set()
 
@@ -954,140 +946,56 @@ def editar_material():
         ("Ubicación", "ubicacion"),
         ("Observaciones", "observaciones"),
     ]
-
     entradas = {}
-
-    frame = ttk.Frame(
-        ventana,
-        padding=20,
-    )
-
-    frame.pack(
-        fill="both",
-        expand=True,
-    )
+    frame = ttk.Frame(ventana, padding=20)
+    frame.pack(fill="both", expand=True)
 
     for fila, (texto, clave) in enumerate(campos):
-
-        ttk.Label(
-            frame,
-            text=texto,
-        ).grid(
-            row=fila,
-            column=0,
-            sticky="w",
-            padx=5,
-            pady=7,
-        )
-
+        ttk.Label(frame, text=texto).grid(row=fila, column=0, sticky="w", padx=5, pady=7)
         e = ttk.Entry(frame)
-
-        e.grid(
-            row=fila,
-            column=1,
-            sticky="ew",
-            padx=5,
-            pady=7,
-        )
-
-        e.insert(
-            0,
-            material.get(clave) or "",
-        )
-
+        e.grid(row=fila, column=1, sticky="ew", padx=5, pady=7)
+        e.insert(0, material.get(clave) or "")
         entradas[clave] = e
 
-    frame.columnconfigure(
-        1,
-        weight=1,
-    )
+    frame.columnconfigure(1, weight=1)
 
     def guardar():
-
-        nombre = (
-            entradas["material"]
-            .get()
-            .strip()
-        )
-
+        nombre = entradas["material"].get().strip()
         if not nombre:
-
-            messagebox.showwarning(
-                "Datos",
-                "El material no puede quedar vacío.",
-                parent=ventana,
-            )
-
+            messagebox.showwarning("Datos", "El material no puede quedar vacío.", parent=ventana)
             return
 
+        datos = {
+            "codigo": entradas["codigo"].get().strip() or None,
+            "material": nombre,
+            "unidad": entradas["unidad"].get().strip() or None,
+            "categoria": entradas["categoria"].get().strip() or None,
+            "ubicacion": entradas["ubicacion"].get().strip() or None,
+            "observaciones": entradas["observaciones"].get().strip() or None,
+        }
+
         try:
+            documento_id = obtener_documento_id_actual()
+            if not documento_id:
+                raise Exception("No se encontró el inventario seleccionado.")
 
-            if not actualizar_material(
-                material["id"],
-                codigo=(
-                    entradas["codigo"]
-                    .get()
-                    .strip()
-                    or None
-                ),
-                material=nombre,
-                unidad=(
-                    entradas["unidad"]
-                    .get()
-                    .strip()
-                    or None
-                ),
-                categoria=(
-                    entradas["categoria"]
-                    .get()
-                    .strip()
-                    or None
-                ),
-                ubicacion=(
-                    entradas["ubicacion"]
-                    .get()
-                    .strip()
-                    or None
-                ),
-                observaciones=(
-                    entradas["observaciones"]
-                    .get()
-                    .strip()
-                    or None
-                ),
-            ):
-
-                raise Exception(
-                    "No se pudo actualizar."
-                )
+            actualizado = actualizar_material_en_inventario(
+                material_id=material["id"],
+                documento_id=documento_id,
+                datos=datos,
+            )
+            if not actualizado:
+                raise Exception("No se pudo actualizar el material.")
 
             invalidar_cache()
-
             ventana.destroy()
-
             actualizar_todo(True)
 
         except Exception as error:
-
             traceback.print_exc()
+            messagebox.showerror("Error", f"No se pudo modificar:\\n\\n{error}", parent=ventana)
 
-            messagebox.showerror(
-                "Error",
-                f"No se pudo modificar:\n\n{error}",
-                parent=ventana,
-            )
-
-    ttk.Button(
-        frame,
-        text="Guardar cambios",
-        command=guardar,
-    ).grid(
-        row=len(campos),
-        column=0,
-        columnspan=2,
-        pady=20,
-    )
-
+    ttk.Button(frame, text="Guardar cambios", command=guardar).grid(row=len(campos), column=0, columnspan=2, pady=20)
 
 # ============================================================
 # ELIMINAR MATERIAL
