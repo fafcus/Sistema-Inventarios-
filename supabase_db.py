@@ -183,8 +183,13 @@ def actualizar_documento(documento_id, fecha_modificacion_archivo):
 # ============================================================
 
 def _obtener_items_base(documento_id):
-    return supabase.table("documento_items").select("*").eq("documento_id", documento_id).order("id").execute().data or []
-
+    return (
+        supabase.table("material_ubicaciones")
+        .select("*")
+        .eq("documento_id", int(documento_id))
+        .order("id")
+        .execute().data or []
+    )
 
 def obtener_items_documento(documento_id):
     """Devuelve el inventario del documento desde material_ubicaciones."""
