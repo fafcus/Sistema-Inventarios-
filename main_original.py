@@ -29,14 +29,11 @@ from inventario_db import obtener_inventario_documento, actualizar_stock_inventa
 # CONFIGURACIÓN
 # ============================================================
 
-CARPETA_DOCUMENTOS = Path(__file__).resolve().parent / "documentos"
-
 NOMBRE_APP = "INVENTARIO MATERIAL NAVAL"
 
 COLOR_STOCK = "🟢 HAY STOCK"
 COLOR_SIN_STOCK = "🔴 SIN STOCK"
 
-INTERVALO_MONITOR = 5000
 INTERVALO_SINCRONIZACION = 3000
 
 COLOR_FONDO = "#eef3f8"
@@ -109,7 +106,6 @@ marco_selector = None
 importacion_en_curso = False
 lock_importacion = threading.Lock()
 
-estado_archivos_word = {}
 
 cache_materiales = []
 cache_documentos = []
@@ -2126,7 +2122,6 @@ def iniciar_realtime_ui():
 def crear_interfaz():
 
     global root
-    global estado_archivos_word
 
     root = tk.Tk()
 
