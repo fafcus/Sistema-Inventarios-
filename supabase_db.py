@@ -219,46 +219,76 @@ def _obtener_items_base(documento_id):
 
 
 def obtener_items_documento(documento_id):
-    """Devuelve los items del documento con el stock efectivo (base + ajustes)."""
-    items = _obtener_items_base(documento_id)
-    ajustes = supabase.table("ajustes_stock").select("material_id,cantidad").eq("documento_id", documento_id).execute().data or []
-    ajustes_por_material = {}
-    for ajuste in ajustes:
-        mid = ajuste.get("material_id")
-        ajustes_por_material[mid] = ajustes_por_material.get(mid, 0.0) + _float(ajuste.get("cantidad"))
-    for item in items:
-        item["cantidad_base"] = _float(item.get("cantidad"))
-        item["cantidad_ajustes"] = ajustes_por_material.get(item.get("material_id"), 0.0)
-        item["cantidad"] = item["cantidad_base"] + item["cantidad_ajustes"]
-    return items
-
+    """Devuelve el inventario del documento desde material_ubicaciones."""
+    documento_id = int(documento_id)
+    filas = (
+        supabase.table("material_ubicaciones")
+        .select("*")
+        .eq("documento_id", documento_id)
+        .order("id")
+        .execute().data or []
+    )
+    materiales = obtener_materiales()
+    por_id = {m.get("id"): m for m in materiales}
+    resultado = []
+    for fila in filas:
+        material = dict(por_id.get(fila.get("material_id")) or {})
+        material.update({
+            "id": fila.get("material_id"),
+            "material_id": fila.get("material_id"),
+            "documento_id": documento_id,
+            "material_ubicacion_id": fila.get("id"),
+            "cantidad_base": _float(fila.get("cantidad")),
+            "cantidad_ajustes": 0.0,
+            "cantidad": _float(fila.get("cantidad")),
+            "ubicacion": fila.get("ubicacion") or material.get("ubicacion"),
+        })
+        resultado.append(material)
+    return resultado
 
 def obtener_todos_items_documento():
-    return supabase.table("documento_items").select("*").order("id").execute().data or []
-
+    """Compatibilidad: devuelve filas de material_ubicaciones."""
+    return (
+        supabase.table("material_ubicaciones")
+        .select("*")
+        .order("id")
+        .execute().data or []
+    )
 
 def obtener_item_documento_por_material(documento_id, material_id):
-    data = supabase.table("documento_items").select("*").eq("documento_id", documento_id).eq("material_id", material_id).limit(1).execute().data or []
+    data = (
+        supabase.table("material_ubicaciones")
+        .select("*")
+        .eq("documento_id", int(documento_id))
+        .eq("material_id", int(material_id))
+        .order("id")
+        .limit(1)
+        .execute().data or []
+    )
     return data[0] if data else None
-
 
 def eliminar_items_documento(documento_id):
-    supabase.table("documento_items").delete().eq("documento_id", documento_id).execute()
-
+    supabase.table("material_ubicaciones").delete().eq("documento_id", int(documento_id)).execute()
 
 def crear_item_documento(documento_id, material_id, cantidad, unidad=None, codigo=None, material=None, categoria=None, ubicacion=None, observaciones=None):
-    datos = {"documento_id": documento_id, "material_id": material_id, "cantidad": _float(cantidad), "unidad": unidad, "codigo": codigo, "material": material, "categoria": categoria, "ubicacion": ubicacion, "observaciones": observaciones}
-    existente = obtener_item_documento_por_material(documento_id, material_id)
+    """Compatibilidad: crea/actualiza una ubicación en el inventario DB."""
+    documento_id = int(documento_id)
+    material_id = int(material_id)
+    ubicacion = str(ubicacion or "Sin ubicación").strip() or "Sin ubicación"
+    existente = (
+        supabase.table("material_ubicaciones")
+        .select("*")
+        .eq("documento_id", documento_id)
+        .eq("material_id", material_id)
+        .eq("ubicacion", ubicacion)
+        .limit(1).execute().data or []
+    )
+    datos = {"documento_id": documento_id, "material_id": material_id, "ubicacion": ubicacion, "cantidad": _float(cantidad)}
     if existente:
-        data = supabase.table("documento_items").update(datos).eq("id", existente["id"]).execute().data or []
+        data = supabase.table("material_ubicaciones").update(datos).eq("id", existente[0]["id"]).execute().data or []
     else:
-        data = supabase.table("documento_items").insert(datos).execute().data or []
+        data = supabase.table("material_ubicaciones").insert(datos).execute().data or []
     return data[0] if data else None
-
-
-# ============================================================
-# AJUSTES ESPECÍFICOS
-# ============================================================
 
 def obtener_ajuste_documento_material(documento_id, material_id):
     data = supabase.table("ajustes_stock").select("cantidad").eq("documento_id", documento_id).eq("material_id", material_id).execute().data or []
@@ -266,54 +296,26 @@ def obtener_ajuste_documento_material(documento_id, material_id):
 
 
 def obtener_stock_documento_material(documento_id, material_id):
-    item = obtener_item_documento_por_material(documento_id, material_id)
-    if item is None: return 0.0
-    return _float(item.get("cantidad")) + obtener_ajuste_documento_material(documento_id, material_id)
+    data = (
+        supabase.table("material_ubicaciones")
+        .select("cantidad")
+        .eq("documento_id", int(documento_id))
+        .eq("material_id", int(material_id))
+        .execute().data or []
+    )
+    return sum(_float(x.get("cantidad")) for x in data)
 
-
-def _actualizar_word_cantidad(documento, item, nueva_cantidad):
-    """Actualiza la celda Cantidad del registro correspondiente en el DOCX."""
-    try:
-        from docx import Document
-    except Exception:
-        return False
-    ruta = documento.get("ruta") if documento else None
-    if not ruta: return False
-    ruta = Path(str(ruta))
-    if not ruta.exists(): return False
-    doc = Document(str(ruta))
-    codigo_obj = str(item.get("codigo") or "").strip().lower()
-    material_obj = str(item.get("material") or "").strip().lower()
-    cantidad_col = None
-    encontrado = False
-    for tabla in doc.tables:
-        if not tabla.rows: continue
-        encabezado = [str(c.text or "").strip().lower() for c in tabla.rows[0].cells]
-        cantidad_col = None
-        for i, texto in enumerate(encabezado):
-            if texto in ("cantidad", "cant", "cant.", "stock", "existencia", "existencias"):
-                cantidad_col = i; break
-        if cantidad_col is None: continue
-        for fila in tabla.rows[1:]:
-            valores = [str(c.text or "").strip().lower() for c in fila.cells]
-            if not valores: continue
-            coincide = False
-            if codigo_obj and codigo_obj in valores: coincide = True
-            if not coincide and material_obj:
-                coincide = any(material_obj == v or material_obj in v for v in valores)
-            if coincide and cantidad_col < len(fila.cells):
-                fila.cells[cantidad_col].text = f"{_float(nueva_cantidad):g}"
-                encontrado = True
-                break
-        if encontrado: break
-    if not encontrado: return False
-    doc.save(str(ruta))
-    try:
-        actualizar_documento(documento.get("id"), ruta.stat().st_mtime)
-    except Exception:
-        pass
-    return True
-
+def actualizar_cantidad_documento_item(item_id, nueva_cantidad, usuario=None, observaciones=None, archivo_origen=None, documento_id=None):
+    """Compatibilidad histórica: actualiza una fila de material_ubicaciones sin tocar Word."""
+    from inventario_db import actualizar_stock_ubicacion_exacta
+    return actualizar_stock_ubicacion_exacta(
+        fila_id=item_id,
+        nueva_cantidad=nueva_cantidad,
+        usuario=usuario,
+        observaciones=observaciones,
+        archivo_origen=archivo_origen,
+        documento_id=documento_id,
+    )
 
 def actualizar_cantidad_documento_item(item_id, nueva_cantidad, usuario=None, observaciones=None, archivo_origen=None, documento_id=None):
     nueva_cantidad = _float(nueva_cantidad)
@@ -392,50 +394,45 @@ def agregar_ajuste_stock(material_id, delta, usuario=None, observaciones=None):
 # ============================================================
 
 def calcular_inventario_general(materiales=None, items=None, ajustes=None):
+    """Calcula el inventario exclusivamente desde material_ubicaciones."""
     materiales = obtener_materiales() if materiales is None else materiales
-    items = obtener_todos_items_documento() if items is None else items
-    ajustes = obtener_ajustes_stock() if ajustes is None else ajustes
-    suma_documentos = {}
-    suma_ajustes = {}
-    for item in items:
-        mid = item.get("material_id")
-        if mid is not None: suma_documentos[mid] = suma_documentos.get(mid, 0.0) + _float(item.get("cantidad"))
-    for ajuste in ajustes:
-        if ajuste.get("documento_id") is not None: continue
-        mid = ajuste.get("material_id")
-        if mid is not None: suma_ajustes[mid] = suma_ajustes.get(mid, 0.0) + _float(ajuste.get("cantidad"))
+    filas = (
+        supabase.table("material_ubicaciones")
+        .select("material_id,cantidad")
+        .execute().data or []
+    ) if items is None else items
+    suma = {}
+    for fila in filas:
+        mid = fila.get("material_id")
+        if mid is not None:
+            suma[mid] = suma.get(mid, 0.0) + _float(fila.get("cantidad"))
     resultado = []
     for material in materiales:
         fila = dict(material)
-        mid = material.get("id")
-        fila["cantidad_documentos"] = suma_documentos.get(mid, 0.0)
-        fila["cantidad_ajustes"] = suma_ajustes.get(mid, 0.0)
-        fila["cantidad"] = fila["cantidad_documentos"] + fila["cantidad_ajustes"]
+        cantidad = suma.get(material.get("id"), 0.0)
+        fila["cantidad_documentos"] = cantidad
+        fila["cantidad_ajustes"] = 0.0
+        fila["cantidad"] = cantidad
         resultado.append(fila)
     return resultado
 
-
 def obtener_inventario_general():
-    materiales = obtener_materiales()
-    items = obtener_todos_items_documento()
-    ajustes = obtener_ajustes_stock()
-    return calcular_inventario_general(materiales, items, ajustes)
-
+    return calcular_inventario_general()
 
 def obtener_stock_documentos_material(material_id):
-    items = obtener_todos_items_documento()
-    return sum(_float(i.get("cantidad")) for i in items if i.get("material_id") == material_id)
-
+    data = (
+        supabase.table("material_ubicaciones")
+        .select("cantidad")
+        .eq("material_id", int(material_id))
+        .execute().data or []
+    )
+    return sum(_float(x.get("cantidad")) for x in data)
 
 def obtener_stock_general_material(material_id):
     material_id = int(material_id)
-    if obtener_material(material_id) is None: raise Exception("No se encontró el material.")
-    return obtener_stock_documentos_material(material_id) + obtener_ajuste_total(material_id)
-
-
-# ============================================================
-# MOVIMIENTOS
-# ============================================================
+    if obtener_material(material_id) is None:
+        raise Exception("No se encontró el material.")
+    return obtener_stock_documentos_material(material_id)
 
 def obtener_movimientos(limite=100):
     return supabase.table("movimientos").select("*").order("fecha", desc=True).limit(limite).execute().data or []
@@ -446,25 +443,32 @@ def obtener_movimientos_material(material_id):
 
 
 def modificar_stock(material_id, cantidad, tipo, usuario=None, observaciones=None, archivo_origen=None):
+    """Modifica stock en la primera ubicación disponible del material."""
     cantidad = _float(cantidad)
-    if cantidad < 0: raise Exception("La cantidad no puede ser negativa.")
+    if cantidad < 0:
+        raise Exception("La cantidad no puede ser negativa.")
     tipo = _normalizar_tipo(tipo)
-    if tipo == "ENTRADA": delta = cantidad
-    elif tipo == "SALIDA": delta = -cantidad
-    else: raise Exception("Tipo de movimiento inválido.")
-    return agregar_ajuste_stock(material_id, delta, usuario, observaciones)
-
+    if tipo not in ("ENTRADA", "SALIDA"):
+        raise Exception("Tipo de movimiento inválido.")
+    from inventario_db import obtener_ubicaciones_material, actualizar_stock_ubicacion_exacta
+    ubicaciones = obtener_ubicaciones_material(material_id)
+    if not ubicaciones:
+        raise Exception("El material no tiene una ubicación de inventario.")
+    fila = ubicaciones[0]
+    nueva = _float(fila.get("cantidad")) + (cantidad if tipo == "ENTRADA" else -cantidad)
+    if nueva < 0:
+        raise Exception("Stock insuficiente.")
+    return actualizar_stock_ubicacion_exacta(fila["id"], nueva, usuario, observaciones, archivo_origen, fila.get("documento_id"))
 
 def ajustar_stock(material_id, nuevo_stock, usuario=None, observaciones=None, archivo_origen=None):
     nuevo_stock = _float(nuevo_stock)
-    if nuevo_stock < 0: raise Exception("El stock no puede ser negativo.")
+    if nuevo_stock < 0:
+        raise Exception("El stock no puede ser negativo.")
     actual = obtener_stock_general_material(material_id)
-    return actual if abs(nuevo_stock - actual) < 0.000001 else agregar_ajuste_stock(material_id, nuevo_stock - actual, usuario, observaciones)
-
-
-# ============================================================
-# BÚSQUEDA
-# ============================================================
+    diferencia = nuevo_stock - actual
+    if abs(diferencia) < 0.000001:
+        return actual
+    return modificar_stock(material_id, abs(diferencia), "ENTRADA" if diferencia > 0 else "SALIDA", usuario, observaciones, archivo_origen)
 
 def buscar_material_por_codigo(codigo, material=None):
     codigo = (codigo or "").strip()
