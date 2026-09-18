@@ -26,6 +26,7 @@ from supabase_db import (
 import importar_word
 import reportes
 from relacion_transito import RelacionTransitoError, generar_relacion_transito
+from realtime import iniciar_realtime
 
 # ============================================================
 # CONFIGURACIÓN
@@ -98,6 +99,10 @@ lock_sincronizacion = threading.Lock()
 firma_datos_sincronizados = None
 
 pausar_sincronizacion = False
+
+# Realtime de Supabase
+detener_realtime = lambda: None
+realtime_refresh_pendiente = None
 
 # Estado de la carga inicial de documentos/materiales.
 datos_iniciales_cargados = False
@@ -2843,6 +2848,45 @@ def construir_pantalla_inventario():
 # CREAR INTERFAZ
 # ============================================================
 
+def iniciar_realtime_ui():
+    """Conecta Supabase Realtime y refresca la UI cuando hay cambios."""
+    global detener_realtime
+    global realtime_refresh_pendiente
+
+    session = globals().get("REALTIME_SESSION")
+    if root is None or session is None:
+        return
+
+    def programar_actualizacion(tabla, evento, payload):
+        global realtime_refresh_pendiente
+        if realtime_refresh_pendiente is not None:
+            try:
+                root.after_cancel(realtime_refresh_pendiente)
+            except Exception:
+                pass
+        realtime_refresh_pendiente = root.after(350, actualizar_por_realtime)
+
+    def actualizar_por_realtime():
+        global realtime_refresh_pendiente
+        realtime_refresh_pendiente = None
+        actualizar_todo(forzar=True)
+
+    def estado_realtime(estado):
+        if lbl_estado is None:
+            return
+        if estado == "conectado":
+            lbl_estado.config(text="🟢 Conectado · Realtime")
+        elif estado == "error":
+            lbl_estado.config(text="🟡 Conectado · Realtime no disponible")
+
+    detener_realtime = iniciar_realtime(
+        root,
+        session,
+        on_change=programar_actualizacion,
+        on_status=estado_realtime,
+    )
+
+
 def crear_interfaz():
 
     global root
@@ -2866,6 +2910,8 @@ def crear_interfaz():
     root.configure(
         bg=COLOR_FONDO
     )
+
+    iniciar_realtime_ui()
 
     aplicar_estilo()
 
