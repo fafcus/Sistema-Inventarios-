@@ -26,7 +26,7 @@ from supabase_db import (
 import importar_word
 import reportes
 from relacion_transito import RelacionTransitoError, generar_relacion_transito
-from realtime import iniciar_realtime
+from realtime_supabase import iniciar_realtime
 
 # ============================================================
 # CONFIGURACIÓN
