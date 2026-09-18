@@ -352,9 +352,9 @@ def guardar_stock_ubicacion(material_id, ubicacion, cantidad):
     """
     Crea o actualiza el stock de un material en una ubicación.
 
-    Esta función todavía no modifica movimientos ni documento_items.
-    Se utiliza durante la transición hacia el inventario 100% basado
-    en Supabase.
+    Esta función trabaja directamente sobre material_ubicaciones.
+    El parámetro documento_id debe gestionarse desde el flujo que conoce
+    el inventario seleccionado.
     """
     material_id = int(material_id)
     ubicacion = str(ubicacion or "").strip() or "Sin ubicación"
@@ -405,8 +405,8 @@ def mover_stock_entre_ubicaciones(material_id, origen, destino, cantidad):
     """
     Mueve stock entre dos ubicaciones dentro de Supabase.
 
-    No modifica todavía movimientos ni documento_items; esa integración
-    se hará en una etapa posterior para evitar alterar el flujo actual.
+    Trabaja directamente sobre material_ubicaciones. Los movimientos
+    deben registrarse desde el flujo de negocio que realiza el traslado.
     """
     material_id = int(material_id)
     cantidad = _float(cantidad)
