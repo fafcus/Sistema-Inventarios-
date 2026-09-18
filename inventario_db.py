@@ -44,6 +44,65 @@ def obtener_inventario_documento(documento_id):
     return data
 
 
+def actualizar_stock_inventario(documento_id, material_id, nueva_cantidad, usuario=None, observaciones=None, archivo_origen=None):
+    """Actualiza directamente el stock del inventario en Supabase, sin tocar Word."""
+    from supabase_db import registrar_movimiento
+
+    documento_id = int(documento_id)
+    material_id = int(material_id)
+    nueva_cantidad = _float(nueva_cantidad)
+
+    if nueva_cantidad < 0:
+        raise ValueError("La cantidad no puede ser negativa.")
+
+    data = (
+        supabase.table("material_ubicaciones")
+        .select("*")
+        .eq("documento_id", documento_id)
+        .eq("material_id", material_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+
+    if not data:
+        raise ValueError("No se encontró el material en el inventario seleccionado.")
+
+    fila = data[0]
+    stock_anterior = _float(fila.get("cantidad"))
+
+    if abs(nueva_cantidad - stock_anterior) < 0.000001:
+        return fila
+
+    actualizado = (
+        supabase.table("material_ubicaciones")
+        .update({"cantidad": nueva_cantidad})
+        .eq("id", fila["id"])
+        .execute()
+        .data
+        or []
+    )
+
+    if not actualizado:
+        raise ValueError("No se pudo actualizar el stock en Supabase.")
+
+    tipo = "ENTRADA" if nueva_cantidad > stock_anterior else "SALIDA"
+    registrar_movimiento(
+        material_id,
+        tipo,
+        abs(nueva_cantidad - stock_anterior),
+        stock_anterior,
+        nueva_cantidad,
+        usuario,
+        observaciones,
+        archivo_origen,
+        documento_id=documento_id,
+    )
+
+    return actualizado[0]
+
+
 def obtener_inventario_por_ubicacion():
     """Obtiene todo el inventario almacenado en la base, agrupado por ubicación."""
     data = (
