@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Funciones auxiliares para obtener el origen real de cada material.
 
-Cada origen corresponde a un documento_items concreto. Esto permite que la
+Cada origen corresponde a una ubicación concreta del inventario. Esto permite que la
 Relación de Tránsito conserve trazabilidad del archivo/documento y ubicación
 desde donde sale el material.
 """
