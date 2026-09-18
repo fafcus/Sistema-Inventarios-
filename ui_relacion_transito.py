@@ -39,7 +39,7 @@ def abrir_selector_relacion_transito(app):
             documento = documentos_por_id.get(documento_id) or {}
             nombre_documento = str(documento.get("nombre") or "").strip()
             if not nombre_documento:
-                nombre_documento = str(documento.get("ruta") or "").replace("\\\\", "/").rsplit("/", 1)[-1]
+                nombre_documento = str(documento.get("ruta") or "").replace("\\", "/").rsplit("/", 1)[-1]
 
             base = dict(materiales_por_id.get(fila.get("material_id")) or {})
             base["id"] = fila.get("material_id")
