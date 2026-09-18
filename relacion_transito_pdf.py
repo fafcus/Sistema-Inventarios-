@@ -5,7 +5,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from supabase_db import agregar_ajuste_stock, obtener_stock_general_material
+from supabase_db import (
+    agregar_ajuste_stock,
+    obtener_stock_general_material,
+    obtener_stock_documento_material,
+    actualizar_cantidad_documento_item,
+)
 
 
 class RelacionTransitoPDFError(Exception):
@@ -151,10 +156,11 @@ def convertir_excel_a_pdf(excel_path: str | Path, pdf_path: str | Path | None = 
 
 
 def descontar_materiales_relacion(materiales, usuario=None, identificador_relacion=None):
-    """Descuenta del inventario general las cantidades retiradas en la relación.
+    """Descuenta cada salida del origen exacto elegido en la relación.
 
-    La operación se valida completa antes de comenzar a descontar para evitar
-    que una cantidad inválida provoque una salida parcial por falta de stock.
+    Si la fila identifica un documento_item, se descuenta de ese origen y se
+    actualiza también el Word asociado. Los materiales sin origen explícito
+    mantienen el comportamiento de ajuste global como respaldo.
     """
     materiales = list(materiales or [])
     if not materiales:
@@ -181,13 +187,28 @@ def descontar_materiales_relacion(materiales, usuario=None, identificador_relaci
                 f"La cantidad a retirar debe ser mayor que cero para '{material.get('material') or material_id}'."
             )
 
-        stock = float(obtener_stock_general_material(material_id) or 0)
+        documento_item_id = material.get("_documento_item_id")
+        documento_id = material.get("_documento_id")
+
+        try:
+            if documento_item_id is not None and documento_id is not None:
+                stock = float(obtener_stock_documento_material(documento_id, material_id) or 0)
+                origen = str(material.get("archivo_origen") or documento_id)
+            else:
+                stock = float(obtener_stock_general_material(material_id) or 0)
+                origen = "stock global"
+        except Exception as error:
+            raise RelacionTransitoPDFError(
+                f"No se pudo verificar el stock de '{material.get('material') or material_id}': {error}"
+            ) from error
+
         if cantidad > stock + 0.000001:
             raise RelacionTransitoPDFError(
                 f"Stock insuficiente para '{material.get('material') or material_id}'. "
-                f"Disponible: {stock:g}. A retirar: {cantidad:g}."
+                f"Disponible en {origen}: {stock:g}. A retirar: {cantidad:g}."
             )
-        pendientes.append((material_id, cantidad, stock, material))
+
+        pendientes.append((material_id, cantidad, stock, material, documento_item_id, documento_id))
 
     observacion_base = "Salida por Relación de Tránsito"
     if identificador_relacion:
@@ -195,31 +216,35 @@ def descontar_materiales_relacion(materiales, usuario=None, identificador_relaci
 
     aplicados = []
     try:
-        for material_id, cantidad, stock, material in pendientes:
-            agregar_ajuste_stock(
-                material_id,
-                -cantidad,
-                usuario=usuario,
-                observaciones=observacion_base,
-            )
-            aplicados.append((material_id, cantidad))
-        return {
-            "materiales": len(aplicados),
-            "cantidad_total": sum(cantidad for _, cantidad in aplicados),
-        }
-    except Exception as error:
-        # Intentamos revertir los descuentos ya aplicados. La reversión queda
-        # registrada como una entrada, preservando la trazabilidad del stock.
-        for material_id, cantidad in reversed(aplicados):
-            try:
+        for material_id, cantidad, stock, material, documento_item_id, documento_id in pendientes:
+            if documento_item_id is not None and documento_id is not None:
+                nueva_cantidad = stock - cantidad
+                actualizar_cantidad_documento_item(
+                    documento_item_id,
+                    nueva_cantidad,
+                    usuario=usuario,
+                    observaciones=observacion_base,
+                    archivo_origen=material.get("archivo_origen"),
+                    documento_id=documento_id,
+                )
+            else:
                 agregar_ajuste_stock(
                     material_id,
-                    cantidad,
+                    -cantidad,
                     usuario=usuario,
-                    observaciones=f"Reversión automática por error en {observacion_base}",
+                    observaciones=observacion_base,
                 )
-            except Exception:
-                pass
+            aplicados.append((material_id, cantidad, documento_item_id, documento_id))
+
+        return {
+            "materiales": len(aplicados),
+            "cantidad_total": sum(cantidad for _, cantidad, _, _ in aplicados),
+        }
+    except Exception as error:
+        # No hacemos una reversión ciega: el origen puede haber sido actualizado
+        # parcialmente en el Word/DB. El error queda visible para no ocultar
+        # una posible inconsistencia y evitar duplicar movimientos.
         raise RelacionTransitoPDFError(
-            f"No se pudo completar el descuento del stock: {error}"
+            f"No se pudo completar el descuento del stock por origen: {error}"
         ) from error
+
