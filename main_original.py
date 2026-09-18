@@ -30,7 +30,7 @@ from relacion_transito import RelacionTransitoError, generar_relacion_transito
 from realtime_supabase import iniciar_realtime
 from ui_relacion_transito import abrir_selector_relacion_transito
 from ui_inventario import construir_pantalla_inventario as construir_pantalla_inventario_ui
-from inventario_db import obtener_inventario_documento, actualizar_stock_inventario
+from inventario_db import obtener_inventario_documento, actualizar_stock_inventario, crear_material_en_inventario
 
 # ============================================================
 # CONFIGURACIÓN
@@ -840,15 +840,8 @@ def nuevo_material():
         return
 
     ventana = tk.Toplevel(root)
-
-    ventana.title(
-        "Nuevo material"
-    )
-
-    ventana.geometry(
-        "520x520"
-    )
-
+    ventana.title("Nuevo material")
+    ventana.geometry("520x520")
     ventana.transient(root)
     ventana.grab_set()
 
@@ -861,251 +854,73 @@ def nuevo_material():
         ("Ubicación", "ubicacion"),
         ("Observaciones", "observaciones"),
     ]
-
     entradas = {}
 
-    frame = ttk.Frame(
-        ventana,
-        padding=20,
-    )
-
-    frame.pack(
-        fill="both",
-        expand=True,
-    )
+    frame = ttk.Frame(ventana, padding=20)
+    frame.pack(fill="both", expand=True)
 
     for fila, (texto, clave) in enumerate(campos):
-
-        ttk.Label(
-            frame,
-            text=texto,
-        ).grid(
-            row=fila,
-            column=0,
-            sticky="w",
-            padx=5,
-            pady=7,
-        )
-
+        ttk.Label(frame, text=texto).grid(row=fila, column=0, sticky="w", padx=5, pady=7)
         e = ttk.Entry(frame)
-
-        e.grid(
-            row=fila,
-            column=1,
-            sticky="ew",
-            padx=5,
-            pady=7,
-        )
-
+        e.grid(row=fila, column=1, sticky="ew", padx=5, pady=7)
         entradas[clave] = e
 
-    frame.columnconfigure(
-        1,
-        weight=1,
-    )
+    frame.columnconfigure(1, weight=1)
 
     def guardar():
-
-        global importacion_en_curso
-
-        nombre = (
-            entradas["material"]
-            .get()
-            .strip()
-        )
-
+        nombre = entradas["material"].get().strip()
         if not nombre:
-
-            messagebox.showwarning(
-                "Datos",
-                "El nombre del material es obligatorio.",
-                parent=ventana,
-            )
-
+            messagebox.showwarning("Datos", "El nombre del material es obligatorio.", parent=ventana)
             return
 
         try:
-
-            cantidad = float(
-                entradas["cantidad"]
-                .get()
-                .strip()
-                .replace(",", ".")
-                or 0
-            )
-
+            cantidad = float(entradas["cantidad"].get().strip().replace(",", ".") or 0)
         except ValueError:
-
-            messagebox.showerror(
-                "Cantidad",
-                "La cantidad debe ser numérica.",
-                parent=ventana,
-            )
-
+            messagebox.showerror("Cantidad", "La cantidad debe ser numérica.", parent=ventana)
             return
 
         if cantidad < 0:
-
-            messagebox.showerror(
-                "Cantidad",
-                "La cantidad no puede ser negativa.",
-                parent=ventana,
-            )
-
+            messagebox.showerror("Cantidad", "La cantidad no puede ser negativa.", parent=ventana)
             return
 
         datos = {
             k: entradas[k].get().strip() or None
-            for k in (
-                "codigo",
-                "unidad",
-                "categoria",
-                "ubicacion",
-                "observaciones",
-            )
+            for k in ("codigo", "unidad", "categoria", "ubicacion", "observaciones")
         }
-
         datos["material"] = nombre
         datos["cantidad"] = cantidad
+        datos["archivo_origen"] = inventario_seleccionado
 
         try:
-
-            if buscar_material(
-                datos["codigo"],
-                nombre,
-                datos["categoria"],
-                datos["ubicacion"],
-            ):
-
-                messagebox.showwarning(
-                    "Material existente",
-                    "Ese material ya existe en la base de datos.",
-                    parent=ventana,
-                )
-
+            if buscar_material(datos["codigo"], nombre, datos["categoria"], datos["ubicacion"]):
+                messagebox.showwarning("Material existente", "Ese material ya existe en la base de datos.", parent=ventana)
                 return
 
-            documento = obtener_documento_actual()
+            documento_id = obtener_documento_id_actual()
+            if not documento_id:
+                raise Exception("No se encontró el inventario seleccionado.")
 
-            if not documento:
-
-                raise Exception(
-                    "No se encontró el documento seleccionado."
-                )
-
-            with lock_importacion:
-
-                if importacion_en_curso:
-
-                    messagebox.showinfo(
-                        "Importación",
-                        "Hay una importación de Word en curso. "
-                        "Esperá a que termine.",
-                        parent=ventana,
-                    )
-
-                    return
-
-                importacion_en_curso = True
-
-            try:
-
-                _agregar_fila_word(
-                    documento,
-                    datos,
-                )
-
-                nuevo = crear_material(
-                    datos["codigo"],
-                    nombre,
-                    0,
-                    datos["unidad"],
-                    datos["categoria"],
-                    datos["ubicacion"],
-                    datos["observaciones"],
-                    inventario_seleccionado,
-                )
-
-                if not nuevo:
-
-                    raise Exception(
-                        "No se pudo crear el material "
-                        "en la base de datos."
-                    )
-
-                if not crear_item_documento(
-                    documento["id"],
-                    nuevo["id"],
-                    cantidad,
-                    unidad=datos["unidad"],
-                    codigo=datos["codigo"],
-                    material=nombre,
-                    categoria=datos["categoria"],
-                    ubicacion=datos["ubicacion"],
-                    observaciones=datos["observaciones"],
-                ):
-
-                    raise Exception(
-                        "No se pudo crear el item del inventario."
-                    )
-
-                try:
-
-                    from supabase_db import actualizar_documento
-
-                    actualizar_documento(
-                        documento["id"],
-                        Path(
-                            str(
-                                documento["ruta"]
-                            )
-                        ).stat().st_mtime,
-                    )
-
-                except Exception:
-                    pass
-
-            finally:
-
-                importacion_en_curso = False
+            nuevo = crear_material_en_inventario(
+                documento_id=documento_id,
+                datos=datos,
+                usuario=USUARIO_NOMBRE,
+            )
 
             invalidar_cache()
-
             ventana.destroy()
-
             actualizar_todo(True)
 
             messagebox.showinfo(
                 "Material creado",
-                f"Se agregó correctamente a "
-                f"{inventario_seleccionado}:\n\n"
-                f"{nombre}\n"
-                f"Cantidad: "
-                f"{formatear_numero(cantidad)}",
+                f"Se agregó correctamente a {inventario_seleccionado}:\\n\\n"
+                f"{nombre}\\nCantidad: {formatear_numero(cantidad)}",
                 parent=root,
             )
-
         except Exception as error:
-
             traceback.print_exc()
+            messagebox.showerror("Error", f"No se pudo crear el material:\\n\\n{error}", parent=ventana)
 
-            messagebox.showerror(
-                "Error",
-                f"No se pudo crear el material:\n\n{error}",
-                parent=ventana,
-            )
-
-    ttk.Button(
-        frame,
-        text="Guardar",
-        command=guardar,
-    ).grid(
-        row=len(campos),
-        column=0,
-        columnspan=2,
-        pady=20,
-    )
-
+    ttk.Button(frame, text="Guardar", command=guardar).grid(row=len(campos), column=0, columnspan=2, pady=20)
 
 # ============================================================
 # EDITAR MATERIAL
