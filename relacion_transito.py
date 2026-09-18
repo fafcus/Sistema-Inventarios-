@@ -109,29 +109,21 @@ def _columna_observaciones(ws):
 
 def _fuentes_material(material_id):
     try:
-        items = (
-            supabase.table("documento_items")
-            .select("documento_id,ubicacion,observaciones")
-            .eq("material_id", int(material_id))
-            .execute().data or []
-        )
-        ids = sorted({int(x["documento_id"]) for x in items if x.get("documento_id") is not None})
+        filas = supabase.table("material_ubicaciones").select("documento_id,ubicacion").eq("material_id", int(material_id)).execute().data or []
+        ids = sorted({int(x["documento_id"]) for x in filas if x.get("documento_id") is not None})
         documentos = {}
         if ids:
             docs = supabase.table("documentos").select("id,nombre").in_("id", ids).execute().data or []
             documentos = {int(x["id"]): _texto(x.get("nombre")) for x in docs}
-        ubicaciones, origenes, observaciones = [], [], []
-        for item in items:
-            ubicacion = _texto(item.get("ubicacion"))
+        ubicaciones, origenes = [], []
+        for fila in filas:
+            ubicacion = _texto(fila.get("ubicacion"))
             if ubicacion and ubicacion != "-" and ubicacion not in ubicaciones:
                 ubicaciones.append(ubicacion)
-            origen = documentos.get(int(item["documento_id"])) if item.get("documento_id") is not None else ""
+            origen = documentos.get(int(fila["documento_id"])) if fila.get("documento_id") is not None else ""
             if origen and origen not in origenes:
                 origenes.append(origen)
-            obs = _texto(item.get("observaciones"))
-            if obs and obs != "-" and obs not in observaciones:
-                observaciones.append(obs)
-        return ubicaciones, origenes, observaciones
+        return ubicaciones, origenes, []
     except Exception:
         return [], [], []
 
