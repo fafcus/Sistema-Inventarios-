@@ -156,15 +156,12 @@ def ejecutar_aplicacion(datos_usuario):
     app.agregar_stock = proteger("agregar_stock", app.agregar_stock)
     app.retirar_stock = proteger("retirar_stock", app.retirar_stock)
     app.abrir_reportes = proteger("generar_reportes", app.abrir_reportes)
-    app.importar_word_manual = proteger("importar_word", app.importar_word_manual)
-    app.reescaneo_completo = proteger("reescaneo_completo", app.reescaneo_completo)
 
     app.nuevo_material = proteger_documento("modificar", app.nuevo_material)
     app.editar_material = proteger_documento("modificar", app.editar_material)
     app.eliminar_material = proteger_documento("eliminar", app.eliminar_material)
     app.agregar_stock = proteger_documento("agregar", app.agregar_stock)
     app.retirar_stock = proteger_documento("retirar", app.retirar_stock)
-    app.reescaneo_completo = proteger_documento("importar", app.reescaneo_completo)
 
     funcion_stock_original = app.actualizar_stock_documento
     def actualizar_stock_con_usuario(*args, **kwargs):
