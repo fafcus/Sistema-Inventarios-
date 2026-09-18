@@ -24,7 +24,6 @@ from supabase_db import (
     buscar_material,
     eliminar_material_del_documento,
 )
-import importar_word
 import reportes
 from relacion_transito import RelacionTransitoError, generar_relacion_transito
 from realtime_supabase import iniciar_realtime
@@ -1440,283 +1439,8 @@ def monitor_sincronizacion():
 
 
 # ============================================================
-# IMPORTACIÓN WORD
+# WORD: ya no participa en la operación del inventario
 # ============================================================
-
-def ejecutar_importacion_word(
-    reescaneo_completo=False,
-    mostrar_resultado=True,
-):
-
-    global importacion_en_curso
-    global pausar_sincronizacion
-    global firma_datos_sincronizados
-    global cache_materiales
-    global cache_documentos
-    global cache_movimientos
-
-    with lock_importacion:
-
-        if importacion_en_curso:
-            return
-
-        importacion_en_curso = True
-
-    pausar_sincronizacion = True
-
-    if lbl_progreso:
-
-        lbl_progreso.config(
-            text="⏳ Importando documentos Word..."
-        )
-
-    if lbl_estado:
-
-        lbl_estado.config(
-            text="🟡 Importando Word..."
-        )
-
-    def trabajo():
-
-        global importacion_en_curso
-        global pausar_sincronizacion
-        global firma_datos_sincronizados
-        global cache_materiales
-        global cache_documentos
-        global cache_movimientos
-
-        resultado = None
-
-        try:
-
-            resultado = (
-                importar_word.importar_todos(
-                    reescaneo_completo=
-                    reescaneo_completo
-                )
-            )
-
-            invalidar_cache()
-
-            materiales = (
-                obtener_materiales()
-                or []
-            )
-
-            documentos = (
-                obtener_documentos()
-                or []
-            )
-
-            movimientos = (
-                obtener_movimientos(100)
-                or []
-            )
-
-            with cache_lock:
-
-                cache_materiales = materiales
-                cache_documentos = documentos
-                cache_movimientos = movimientos
-
-            firma_datos_sincronizados = (
-                generar_firma_sincronizacion(
-                    materiales,
-                    documentos,
-                    movimientos,
-                )
-            )
-
-            print(
-                "RESULTADO:",
-                resultado,
-            )
-
-        except Exception as error:
-
-            traceback.print_exc()
-
-            ejecutar_en_ui(
-                lambda error=error:
-                messagebox.showerror(
-                    "Error",
-                    "Ocurrió un error durante "
-                    "la importación:\n\n"
-                    f"{error}",
-                    parent=root,
-                )
-            )
-
-        finally:
-
-            pausar_sincronizacion = False
-            importacion_en_curso = False
-
-            ejecutar_en_ui(actualizar_interfaz_por_sincronizacion)
-
-            if resultado is not None and mostrar_resultado:
-                ejecutar_en_ui(mostrar_resultado_importacion, resultado)
-
-    threading.Thread(
-        target=trabajo,
-        daemon=True,
-    ).start()
-
-
-def construir_mensaje_importacion(
-    resultado
-):
-
-    if not isinstance(
-        resultado,
-        dict,
-    ):
-        return str(resultado)
-
-    campos = [
-        ("nuevos", "Nuevos"),
-        ("modificados", "Modificados"),
-        ("actualizados", "Actualizados"),
-        ("sin_cambios", "Sin cambios"),
-        ("eliminados", "Eliminados"),
-        ("vacios", "Vacíos"),
-        ("filas", "Filas procesadas"),
-        ("items", "Items"),
-        ("errores", "Errores"),
-    ]
-
-    return "\n".join(
-        f"{nombre}: "
-        f"{resultado.get(clave, 0)}"
-        for clave, nombre in campos
-        if clave in resultado
-    ) or str(resultado)
-
-
-def mostrar_resultado_importacion(
-    resultado
-):
-
-    if lbl_progreso:
-
-        lbl_progreso.config(
-            text="✓ Word sincronizado"
-        )
-
-    messagebox.showinfo(
-        "Importación finalizada",
-        construir_mensaje_importacion(
-            resultado
-        ),
-        parent=root,
-    )
-
-
-def importar_word_manual():
-
-    if importacion_en_curso:
-
-        messagebox.showinfo(
-            "Importación",
-            "Ya hay una importación en curso.",
-            parent=root,
-        )
-
-        return
-
-    ejecutar_importacion_word(False)
-
-
-def reescaneo_completo():
-
-    if importacion_en_curso:
-
-        messagebox.showinfo(
-            "Importación",
-            "Ya hay una importación en curso.",
-            parent=root,
-        )
-
-        return
-
-    if not messagebox.askyesno(
-        "Reescaneo completo",
-        "Se van a revisar nuevamente "
-        "todos los archivos Word.\n\n"
-        "Esto puede tardar unos minutos.\n\n"
-        "¿Continuar?",
-        parent=root,
-    ):
-        return
-
-    ejecutar_importacion_word(True)
-
-
-# ============================================================
-# MONITOR DE WORD
-# ============================================================
-
-def obtener_estado_archivos_word():
-
-    estado = {}
-
-    CARPETA_DOCUMENTOS.mkdir(
-        exist_ok=True
-    )
-
-    for ruta in CARPETA_DOCUMENTOS.glob(
-        "*.docx"
-    ):
-
-        if ruta.name.startswith("~$"):
-            continue
-
-        try:
-
-            estado[
-                str(ruta.resolve())
-            ] = ruta.stat().st_mtime
-
-        except Exception:
-            pass
-
-    return estado
-
-
-def monitor_word():
-
-    global estado_archivos_word
-
-    print(
-        "📄 Monitor de Word iniciado."
-    )
-
-    while True:
-
-        try:
-
-            nuevo = (
-                obtener_estado_archivos_word()
-            )
-
-            if nuevo != estado_archivos_word:
-
-                estado_archivos_word = nuevo
-
-                if not importacion_en_curso:
-
-                    ejecutar_importacion_word(
-                        False
-                    )
-
-        except Exception:
-            traceback.print_exc()
-
-        time.sleep(
-            INTERVALO_MONITOR
-            / 1000
-        )
-
 
 # ============================================================
 # ESTILO
@@ -2081,7 +1805,7 @@ def construir_opciones_documentos(parent):
 
     ttk.Label(
         parent,
-        text="Elegí el archivo Word cuyo inventario querés administrar.",
+        text="Elegí el inventario que querés administrar.",
         foreground=COLOR_TEXTO_SECUNDARIO,
     ).pack(
         pady=(0, 16)
@@ -2103,7 +1827,7 @@ def construir_opciones_documentos(parent):
 
         ttk.Label(
             cont,
-            text="No se encontraron archivos Word en la carpeta documentos.",
+            text="No se encontraron inventarios disponibles.",
             font=("Segoe UI", 11),
         ).pack(
             pady=40
@@ -2546,28 +2270,10 @@ def crear_interfaz():
         daemon=True,
     ).start()
 
-    estado_archivos_word = (
-        obtener_estado_archivos_word()
-    )
-
-    threading.Thread(
-        target=monitor_word,
-        daemon=True,
-    ).start()
-
     threading.Thread(
         target=monitor_sincronizacion,
         daemon=True,
     ).start()
-
-    root.after(
-        1500,
-        lambda:
-        ejecutar_importacion_word(
-            False,
-            mostrar_resultado=False,
-        ),
-    )
 
     root.mainloop()
 
