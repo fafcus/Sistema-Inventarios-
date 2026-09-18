@@ -180,36 +180,38 @@ def ejecutar_aplicacion(datos_usuario):
 
     app.generar_relacion_transito_ui = lambda: abrir_selector_relacion_transito(app)
 
+    def agregar_controles_admin():
+        # Se ejecuta dentro del hilo principal, después de crear la ventana.
+            if str(rol or "").strip().lower() == "administrador":
+                try:
+                    from admin_usuarios import abrir_admin_usuarios
+                    from permisos_documentos import abrir_admin_permisos
+        
+                    barra_admin = ttk.Frame(app.root, padding=(10, 6))
+                    barra_admin.pack(fill="x", before=app.root.winfo_children()[-1])
+        
+                    ttk.Label(
+                        barra_admin,
+                        text="Administración:",
+                        font=("Segoe UI", 9, "bold"),
+                    ).pack(side="left", padx=(4, 10))
+        
+                    ttk.Button(
+                        barra_admin,
+                        text="👥 Usuarios",
+                        command=lambda: abrir_admin_usuarios(app.root, nombre),
+                    ).pack(side="left", padx=4)
+        
+                    ttk.Button(
+                        barra_admin,
+                        text="🔐 Permisos",
+                        command=lambda: abrir_admin_permisos(app.root),
+                    ).pack(side="left", padx=4)
+                except Exception:
+                    traceback.print_exc()
+
+    app.ADMIN_UI_HOOK = agregar_controles_admin
     app.crear_interfaz()
-
-    # Barra administrativa visible solo para administradores.
-    if str(rol or "").strip().lower() == "administrador":
-        try:
-            from admin_usuarios import abrir_admin_usuarios
-            from permisos_documentos import abrir_admin_permisos
-
-            barra_admin = ttk.Frame(app.root, padding=(10, 6))
-            barra_admin.pack(fill="x", before=app.root.winfo_children()[-1])
-
-            ttk.Label(
-                barra_admin,
-                text="Administración:",
-                font=("Segoe UI", 9, "bold"),
-            ).pack(side="left", padx=(4, 10))
-
-            ttk.Button(
-                barra_admin,
-                text="👥 Usuarios",
-                command=lambda: abrir_admin_usuarios(app.root, nombre),
-            ).pack(side="left", padx=4)
-
-            ttk.Button(
-                barra_admin,
-                text="🔐 Permisos",
-                command=lambda: abrir_admin_permisos(app.root),
-            ).pack(side="left", padx=4)
-        except Exception:
-            traceback.print_exc()
     try:
         root = app.root
         def cerrar():
