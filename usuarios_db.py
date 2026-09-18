@@ -29,8 +29,6 @@ PERMISOS = {
         "eliminar_material",
         "agregar_stock",
         "retirar_stock",
-        "importar_word",
-        "reescaneo_completo",
         "administrar_usuarios",
     },
     "encargado": {
