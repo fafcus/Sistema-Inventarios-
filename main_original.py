@@ -406,7 +406,7 @@ def obtener_materiales_seleccionados():
             0
         )
 
-        copia["_documento_item_id"] = item.get("id")
+        copia["_material_ubicacion_id"] = item.get("id")
 
         for campo in (
             "codigo",
@@ -570,41 +570,6 @@ def obtener_material_seleccionado():
 
 
 # ============================================================
-# ITEM DEL DOCUMENTO
-# ============================================================
-
-def obtener_item_documento(material_id):
-
-    documento_id = obtener_documento_id_actual()
-
-    if not documento_id:
-        return None
-
-    try:
-        items = obtener_items_documento(
-            documento_id
-        ) or []
-
-    except Exception:
-        return None
-
-    for item in items:
-
-        try:
-
-            if int(
-                item.get("material_id", -1)
-            ) == int(material_id):
-
-                return item
-
-        except Exception:
-            pass
-
-    return None
-
-
-# ============================================================
 # ACTUALIZAR STOCK
 # ============================================================
 
@@ -725,21 +690,7 @@ def retirar_stock():
     unidad = material.get("unidad") or ""
     codigo = material.get("codigo") or "-"
 
-    item = obtener_item_documento(mid)
-
-    if item is None:
-
-        messagebox.showerror(
-            "Error",
-            "El material no pertenece al inventario seleccionado.",
-            parent=root,
-        )
-
-        return
-
-    stock = float(
-        item.get("cantidad", 0) or 0
-    )
+    stock = float(material.get("cantidad", 0) or 0)
 
     cantidad = simpledialog.askfloat(
         "Retirar stock",
