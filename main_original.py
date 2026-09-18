@@ -62,6 +62,11 @@ COLOR_SIN_STOCK_FONDO = "#fdeaea"
 
 root = None
 
+# Usuario autenticado (configurado por inicio.py)
+USUARIO_ACTUAL = None
+USUARIO_NOMBRE = "Usuario"
+USUARIO_ROL = "consulta"
+
 tabla = None
 tabla_movimientos = None
 entrada_busqueda = None
@@ -2280,6 +2285,27 @@ def crear_cabecera():
     lbl_estado.pack(
         side="right"
     )
+
+    # Acciones exclusivas del administrador.
+    if str(USUARIO_ROL or "").strip().lower() == "administrador":
+        try:
+            from admin_usuarios import abrir_admin_usuarios
+            from permisos_documentos import abrir_admin_permisos
+
+            ttk.Button(
+                cab,
+                text="🔐 Permisos",
+                command=lambda: abrir_admin_permisos(root),
+            ).pack(side="right", padx=(0, 8))
+
+            ttk.Button(
+                cab,
+                text="👥 Usuarios",
+                command=lambda: abrir_admin_usuarios(root, USUARIO_NOMBRE),
+            ).pack(side="right", padx=(0, 12))
+        except Exception:
+            traceback.print_exc()
+
 
 
 # ============================================================
