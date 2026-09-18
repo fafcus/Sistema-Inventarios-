@@ -6,6 +6,7 @@ from copy import deepcopy
 from datetime import datetime
 import threading
 import time
+import queue
 import traceback
 from word_document_utils import _agregar_fila_word, _eliminar_fila_word
 
@@ -66,6 +67,31 @@ root = None
 USUARIO_ACTUAL = None
 USUARIO_NOMBRE = "Usuario"
 USUARIO_ROL = "consulta"
+
+
+def ejecutar_en_ui(funcion, *args, **kwargs):
+    """Encola una función para ejecutarla en el hilo principal de Tkinter."""
+    cola_ui.put((funcion, args, kwargs))
+
+
+def procesar_cola_ui():
+    """Ejecuta callbacks de UI pendientes desde el hilo principal."""
+    try:
+        while True:
+            funcion, args, kwargs = cola_ui.get_nowait()
+            try:
+                funcion(*args, **kwargs)
+            except Exception:
+                traceback.print_exc()
+    except queue.Empty:
+        pass
+    if root is not None:
+        try:
+            root.after(50, procesar_cola_ui)
+        except Exception:
+            pass
+
+cola_ui = queue.Queue()
 
 tabla = None
 tabla_movimientos = None
@@ -1574,12 +1600,7 @@ def actualizar_todo(forzar=False):
 
             if lbl_progreso:
 
-                root.after(
-                    0,
-                    lambda: lbl_progreso.config(
-                        text="⏳ Actualizando..."
-                    ),
-                )
+                ejecutar_en_ui(lambda: lbl_progreso.config(text="⏳ Actualizando..."))
 
             (
                 materiales,
@@ -1623,10 +1644,7 @@ def actualizar_todo(forzar=False):
                     with lock_actualizacion:
                         actualizacion_en_curso = False
 
-            root.after(
-                0,
-                refrescar,
-            )
+            ejecutar_en_ui(refrescar)
 
         except Exception:
 
@@ -1651,10 +1669,7 @@ def actualizar_todo(forzar=False):
                         text="Error al actualizar"
                     )
 
-            root.after(
-                0,
-                fallo,
-            )
+            ejecutar_en_ui(fallo)
 
     threading.Thread(
         target=trabajo,
@@ -1742,20 +1757,11 @@ def sincronizar_automaticamente():
                     cache_documentos = documentos
                     cache_movimientos = movimientos
 
-                root.after(
-                    0,
-                    actualizar_interfaz_por_sincronizacion,
-                )
+                ejecutar_en_ui(actualizar_interfaz_por_sincronizacion)
 
             else:
 
-                root.after(
-                    0,
-                    lambda: actualizar_estado_sync(
-                        True,
-                        False,
-                    ),
-                )
+                ejecutar_en_ui(actualizar_estado_sync, True, False)
 
         except Exception as error:
 
@@ -1766,13 +1772,7 @@ def sincronizar_automaticamente():
 
             traceback.print_exc()
 
-            root.after(
-                0,
-                lambda: actualizar_estado_sync(
-                    False,
-                    False,
-                ),
-            )
+            ejecutar_en_ui(actualizar_estado_sync, False, False)
 
         finally:
 
@@ -1970,20 +1970,11 @@ def ejecutar_importacion_word(
             pausar_sincronizacion = False
             importacion_en_curso = False
 
-            root.after(
-                0,
-                actualizar_interfaz_por_sincronizacion,
-            )
+            ejecutar_en_ui(actualizar_interfaz_por_sincronizacion)
 
             if resultado is not None:
 
-                root.after(
-                    150,
-                    lambda:
-                    mostrar_resultado_importacion(
-                        resultado
-                    ),
-                )
+                ejecutar_en_ui(mostrar_resultado_importacion, resultado)
 
     threading.Thread(
         target=trabajo,
@@ -2939,6 +2930,8 @@ def crear_interfaz():
         bg=COLOR_FONDO
     )
 
+    root.after(50, procesar_cola_ui)
+
     iniciar_realtime_ui()
 
     aplicar_estilo()
@@ -2956,27 +2949,14 @@ def crear_interfaz():
 
             conectado = probar_conexion()
 
-            root.after(
-                0,
-                lambda:
-                lbl_estado.config(
-                    text=(
-                        "🟢 Conectado"
-                        if conectado
-                        else "🔴 Sin conexión"
-                    )
-                ),
-            )
+            ejecutar_en_ui(lambda: lbl_estado.config(text=("🟢 Conectado" if conectado else "🔴 Sin conexión")))
 
             cargar_datos_supabase()
 
             datos_iniciales_cargados = True
             error_carga_inicial = None
 
-            root.after(
-                0,
-                refrescar_pantalla_seleccion,
-            )
+            ejecutar_en_ui(refrescar_pantalla_seleccion)
 
         except Exception as error:
 
@@ -2985,13 +2965,7 @@ def crear_interfaz():
 
             traceback.print_exc()
 
-            root.after(
-                0,
-                lambda:
-                lbl_estado.config(
-                    text="🔴 Sin conexión"
-                ),
-            )
+            ejecutar_en_ui(lambda: lbl_estado.config(text="🔴 Sin conexión"))
 
             root.after(
                 0,
