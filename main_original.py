@@ -2938,6 +2938,15 @@ def crear_interfaz():
 
     crear_cabecera()
 
+    # El login puede registrar una función para agregar controles antes
+    # de entrar al mainloop. Así no queda bloqueada por root.mainloop().
+    try:
+        hook_admin = globals().get("ADMIN_UI_HOOK")
+        if callable(hook_admin):
+            hook_admin()
+    except Exception:
+        traceback.print_exc()
+
     mostrar_pantalla_seleccion()
 
     def iniciar():
