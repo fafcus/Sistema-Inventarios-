@@ -44,6 +44,67 @@ def obtener_inventario_documento(documento_id):
     return data
 
 
+def crear_material_en_inventario(documento_id, datos, usuario=None):
+    """Crea un material nuevo directamente en Supabase, sin modificar Word."""
+    from supabase_db import crear_material, registrar_movimiento
+
+    documento_id = int(documento_id)
+    cantidad = _float(datos.get("cantidad"))
+    if cantidad < 0:
+        raise ValueError("La cantidad no puede ser negativa.")
+
+    nuevo = crear_material(
+        datos.get("codigo"),
+        datos.get("material"),
+        0,
+        datos.get("unidad"),
+        datos.get("categoria"),
+        datos.get("ubicacion"),
+        datos.get("observaciones"),
+        datos.get("archivo_origen"),
+    )
+    if not nuevo:
+        raise ValueError("No se pudo crear el material en Supabase.")
+
+    material_id = int(nuevo["id"])
+    ubicacion = str(datos.get("ubicacion") or "").strip() or "Sin ubicación"
+
+    try:
+        fila = (
+            supabase.table("material_ubicaciones")
+            .insert({
+                "material_id": material_id,
+                "documento_id": documento_id,
+                "ubicacion": ubicacion,
+                "cantidad": cantidad,
+            })
+            .execute()
+            .data
+            or []
+        )
+        if not fila:
+            raise ValueError("No se pudo crear la ubicación del material.")
+    except Exception:
+        supabase.table("materiales").delete().eq("id", material_id).execute()
+        raise
+
+    if cantidad > 0:
+        registrar_movimiento(
+            material_id,
+            "ENTRADA",
+            cantidad,
+            0,
+            cantidad,
+            usuario,
+            "Alta de material en inventario",
+            datos.get("archivo_origen"),
+            documento_id=documento_id,
+        )
+
+    nuevo["cantidad"] = 0
+    return {**nuevo, "ubicacion": ubicacion, "cantidad_inventario": cantidad}
+
+
 def actualizar_stock_inventario(documento_id, material_id, nueva_cantidad, usuario=None, observaciones=None, archivo_origen=None):
     """Actualiza directamente el stock del inventario en Supabase, sin tocar Word."""
     from supabase_db import registrar_movimiento
