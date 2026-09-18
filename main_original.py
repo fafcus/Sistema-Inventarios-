@@ -30,7 +30,7 @@ from relacion_transito import RelacionTransitoError, generar_relacion_transito
 from realtime_supabase import iniciar_realtime
 from ui_relacion_transito import abrir_selector_relacion_transito
 from ui_inventario import construir_pantalla_inventario as construir_pantalla_inventario_ui
-from inventario_db import obtener_inventario_documento
+from inventario_db import obtener_inventario_documento, actualizar_stock_inventario
 
 # ============================================================
 # CONFIGURACIÓN
@@ -622,24 +622,18 @@ def actualizar_stock_documento(
     usuario="APP",
     observaciones=None,
 ):
+    """Actualiza stock directamente en Supabase, sin modificar archivos Word."""
+    documento_id = obtener_documento_id_actual()
+    if not documento_id:
+        raise Exception("No se encontró el inventario seleccionado.")
 
-    item = obtener_item_documento(
-        material_id
-    )
-
-    if item is None:
-
-        raise Exception(
-            "El material no pertenece al inventario seleccionado."
-        )
-
-    return actualizar_cantidad_documento_item(
-        item["id"],
-        nueva_cantidad,
+    return actualizar_stock_inventario(
+        documento_id=documento_id,
+        material_id=material_id,
+        nueva_cantidad=nueva_cantidad,
         usuario=usuario,
-        archivo_origen=inventario_seleccionado,
         observaciones=observaciones,
-        documento_id=obtener_documento_id_actual(),
+        archivo_origen=inventario_seleccionado,
     )
 
 
