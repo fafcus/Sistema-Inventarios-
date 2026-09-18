@@ -30,7 +30,7 @@ from relacion_transito import RelacionTransitoError, generar_relacion_transito
 from realtime_supabase import iniciar_realtime
 from ui_relacion_transito import abrir_selector_relacion_transito
 from ui_inventario import construir_pantalla_inventario as construir_pantalla_inventario_ui
-from inventario_db import obtener_ubicaciones_material
+from inventario_db import obtener_inventario_documento
 
 # ============================================================
 # CONFIGURACIÓN
@@ -371,7 +371,7 @@ def obtener_materiales_seleccionados():
         return []
 
     try:
-        ubicaciones = obtener_ubicaciones_material(documento_id) or []
+        ubicaciones = obtener_inventario_documento(documento_id) or []
     except Exception as error:
         print(
             "Error obteniendo inventario desde Supabase:",
