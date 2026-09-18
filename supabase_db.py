@@ -285,33 +285,6 @@ def actualizar_cantidad_documento_item(item_id, nueva_cantidad, usuario=None, ob
         documento_id=documento_id,
     )
 
-def actualizar_cantidad_documento_item(item_id, nueva_cantidad, usuario=None, observaciones=None, archivo_origen=None, documento_id=None):
-    nueva_cantidad = _float(nueva_cantidad)
-    if nueva_cantidad < 0: raise Exception("La cantidad no puede ser negativa.")
-    data = supabase.table("documento_items").select("*").eq("id", item_id).limit(1).execute().data or []
-    if not data: raise Exception("No se encontró el material dentro del documento.")
-    item = data[0]
-    material_id = item.get("material_id")
-    documento_item_id = item.get("documento_id")
-    documento_id = documento_id if documento_id is not None else documento_item_id
-    if documento_id is None: raise Exception("No se pudo determinar el documento del material.")
-    if documento_item_id is not None and int(documento_id) != int(documento_item_id): raise Exception("El material no pertenece al documento seleccionado.")
-    stock_actual = obtener_stock_documento_material(documento_id, material_id)
-    diferencia = nueva_cantidad - stock_actual
-    if abs(diferencia) < 0.000001: return stock_actual
-    documento = supabase.table("documentos").select("*").eq("id", documento_id).limit(1).execute().data or []
-    documento = _normalizar_documento(documento[0]) if documento else None
-    if not documento: raise Exception("No se encontró el documento seleccionado.")
-    if not _actualizar_word_cantidad(documento, item, nueva_cantidad):
-        raise Exception("No se pudo actualizar la cantidad en el archivo Word.")
-    data = supabase.table("documento_items").update({"cantidad": nueva_cantidad}).eq("id", item_id).execute().data or []
-    if not data: raise Exception("No se pudo actualizar documento_items.")
-    supabase.table("ajustes_stock").delete().eq("documento_id", documento_id).eq("material_id", material_id).execute()
-    tipo = "ENTRADA" if diferencia > 0 else "SALIDA"
-    registrar_movimiento(material_id, tipo, abs(diferencia), stock_actual, nueva_cantidad, usuario, observaciones, archivo_origen, documento_id=documento_id)
-    return nueva_cantidad
-
-
 # ============================================================
 # AJUSTES GENERALES
 # ============================================================
