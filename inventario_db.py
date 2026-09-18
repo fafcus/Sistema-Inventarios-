@@ -105,6 +105,42 @@ def crear_material_en_inventario(documento_id, datos, usuario=None):
     return {**nuevo, "ubicacion": ubicacion, "cantidad_inventario": cantidad}
 
 
+def actualizar_material_en_inventario(material_id, documento_id, datos):
+    """Actualiza datos del material y su ubicación dentro del inventario seleccionado."""
+    from supabase_db import actualizar_material
+
+    material_id = int(material_id)
+    documento_id = int(documento_id)
+    ubicacion = str(datos.get("ubicacion") or "").strip() or "Sin ubicación"
+
+    actualizado = actualizar_material(
+        material_id,
+        codigo=datos.get("codigo"),
+        material=datos.get("material"),
+        unidad=datos.get("unidad"),
+        categoria=datos.get("categoria"),
+        ubicacion=datos.get("ubicacion"),
+        observaciones=datos.get("observaciones"),
+    )
+    if not actualizado:
+        return None
+
+    filas = (
+        supabase.table("material_ubicaciones")
+        .select("id, ubicacion")
+        .eq("documento_id", documento_id)
+        .eq("material_id", material_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if filas:
+        supabase.table("material_ubicaciones").update({"ubicacion": ubicacion}).eq("id", filas[0]["id"]).execute()
+
+    return actualizado
+
+
 def actualizar_stock_inventario(documento_id, material_id, nueva_cantidad, usuario=None, observaciones=None, archivo_origen=None):
     """Actualiza directamente el stock del inventario en Supabase, sin tocar Word."""
     from supabase_db import registrar_movimiento
