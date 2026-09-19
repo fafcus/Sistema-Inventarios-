@@ -1718,11 +1718,18 @@ def cambiar_fondo_recursivo(widget, color):
 
 def construir_opciones_documentos(parent):
 
-    documentos = [
-        d
-        for d in obtener_documentos_cache()
-        if d.get("nombre")
-    ]
+    from usuarios_db import tiene_permiso
+    from permisos_documentos import tiene_permiso_documento
+
+    documentos = []
+    rol_actual = str(USUARIO_ROL or "").strip().lower()
+    for d in obtener_documentos_cache():
+        if not d.get("nombre"):
+            continue
+        if rol_actual == "administrador":
+            documentos.append(d)
+        elif tiene_permiso(rol_actual, "ver_inventario") and tiene_permiso_documento(d.get("id"), "ver"):
+            documentos.append(d)
 
     ttk.Label(
         parent,
