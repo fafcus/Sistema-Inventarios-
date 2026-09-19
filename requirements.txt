@@ -1,8 +1,9 @@
-# Dependencias de ejecución - Sistema de Inventarios
+# Dependencias de ejecución
 supabase
 httpx
 openpyxl
 python-docx
+pywin32
 
-# Herramienta de compilación (solo para generar el .exe)
+# Herramienta de compilación
 pyinstaller
