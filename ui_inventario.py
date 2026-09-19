@@ -6,9 +6,13 @@ el módulo de aplicación recibido como argumento.
 """
 
 import tkinter as tk
+import sys
 from tkinter import ttk
 
-_NOMBRES = ["root","tabla","tabla_movimientos","entrada_busqueda","lbl_total_materiales","lbl_con_stock","lbl_sin_stock","lbl_cantidad_total","lbl_progreso","marco_contenido","marco_selector","inventario_seleccionado","inventario_seleccionado_id","COLOR_FONDO","COLOR_PANEL","COLOR_AZUL_OSCURO","COLOR_AZUL","COLOR_AZUL_CLARO","COLOR_BORDE","COLOR_TEXTO","COLOR_TEXTO_SECUNDARIO","COLOR_STOCK_FONDO","COLOR_SIN_STOCK_FONDO","COLOR_STOCK","COLOR_SIN_STOCK","buscar","actualizar_tabla","nuevo_material","editar_material","eliminar_material","agregar_stock","retirar_stock","abrir_reportes","generar_relacion_transito_ui","actualizar_todo","cargar_inventario_seleccionado","volver_a_seleccion"]
+from usuarios_db import tiene_permiso
+from permisos_documentos import tiene_permiso_documento
+
+_NOMBRES = ["root","tabla","tabla_movimientos","entrada_busqueda","lbl_total_materiales","lbl_con_stock","lbl_sin_stock","lbl_cantidad_total","lbl_progreso","marco_contenido","marco_selector","inventario_seleccionado","inventario_seleccionado_id","USUARIO_ROL","obtener_documento_id_actual","COLOR_FONDO","COLOR_PANEL","COLOR_AZUL_OSCURO","COLOR_AZUL","COLOR_AZUL_CLARO","COLOR_BORDE","COLOR_TEXTO","COLOR_TEXTO_SECUNDARIO","COLOR_STOCK_FONDO","COLOR_SIN_STOCK_FONDO","COLOR_STOCK","COLOR_SIN_STOCK","buscar","actualizar_tabla","nuevo_material","editar_material","eliminar_material","agregar_stock","retirar_stock","abrir_reportes","generar_relacion_transito_ui","actualizar_todo","cargar_inventario_seleccionado","volver_a_seleccion"]
 _ESTADO = ["root","tabla","tabla_movimientos","entrada_busqueda","lbl_total_materiales","lbl_con_stock","lbl_sin_stock","lbl_cantidad_total","lbl_progreso","marco_contenido","marco_selector"]
 
 def _construir_pantalla_inventario():
@@ -194,19 +198,35 @@ def _construir_pantalla_inventario():
         fill="x"
     )
 
-    for text, cmd in (
-        ("➕ Nuevo", nuevo_material),
-        ("✏️ Editar", editar_material),
-        ("🗑️ Eliminar", eliminar_material),
-        ("📥 Agregar", agregar_stock),
-        ("📤 Retirar", retirar_stock),
-        ("📊 Reportes", abrir_reportes),
-        ("📋 Relación de Tránsito", generar_relacion_transito_ui),
-        (
-            "🔄 Actualizar",
-            lambda: actualizar_todo(True),
-        ),
-    ):
+    rol_actual = str(USUARIO_ROL or "").strip().lower()
+    try:
+        documento_id_actual = obtener_documento_id_actual()
+    except Exception:
+        documento_id_actual = None
+
+    def puede(permiso_rol, permiso_documento=None):
+        if rol_actual == "administrador":
+            return True
+        if not tiene_permiso(rol_actual, permiso_rol):
+            return False
+        if permiso_documento and not tiene_permiso_documento(documento_id_actual, permiso_documento):
+            return False
+        return True
+
+    acciones = (
+        ("➕ Nuevo", nuevo_material, puede("crear_material", "modificar")),
+        ("✏️ Editar", editar_material, puede("editar_material", "modificar")),
+        ("🗑️ Eliminar", eliminar_material, puede("eliminar_material", "eliminar")),
+        ("📥 Agregar", agregar_stock, puede("agregar_stock", "agregar")),
+        ("📤 Retirar", retirar_stock, puede("retirar_stock", "retirar")),
+        ("📊 Reportes", abrir_reportes, puede("generar_reportes")),
+        ("📋 Relación de Tránsito", generar_relacion_transito_ui, puede("generar_relacion_transito")),
+        ("🔄 Actualizar", lambda: actualizar_todo(True), True),
+    )
+
+    for text, cmd, permitido in acciones:
+        if not permitido:
+            continue
 
         ttk.Button(
             buttons,
