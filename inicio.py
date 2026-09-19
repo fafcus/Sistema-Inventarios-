@@ -150,18 +150,37 @@ def ejecutar_aplicacion(datos_usuario):
         wrapper.__name__ = getattr(funcion, "__name__", "accion")
         return wrapper
 
-    app.nuevo_material = proteger("crear_material", app.nuevo_material)
-    app.editar_material = proteger("editar_material", app.editar_material)
-    app.eliminar_material = proteger("eliminar_material", app.eliminar_material)
-    app.agregar_stock = proteger("agregar_stock", app.agregar_stock)
-    app.retirar_stock = proteger("retirar_stock", app.retirar_stock)
-    app.abrir_reportes = proteger("generar_reportes", app.abrir_reportes)
+    acciones_rol = {
+        "nuevo_material": "crear_material",
+        "editar_material": "editar_material",
+        "eliminar_material": "eliminar_material",
+        "agregar_stock": "agregar_stock",
+        "retirar_stock": "retirar_stock",
+        "abrir_reportes": "generar_reportes",
+        "generar_relacion_transito_ui": "generar_relacion_transito",
+    }
 
-    app.nuevo_material = proteger_documento("modificar", app.nuevo_material)
-    app.editar_material = proteger_documento("modificar", app.editar_material)
-    app.eliminar_material = proteger_documento("eliminar", app.eliminar_material)
-    app.agregar_stock = proteger_documento("agregar", app.agregar_stock)
-    app.retirar_stock = proteger_documento("retirar", app.retirar_stock)
+    # La UI real se construye en main_original.py. La protección debe estar
+    # instalada en ambos módulos para que no se pueda saltar haciendo clic
+    # desde una referencia que conserve la función original.
+    for modulo in (app, core):
+        for nombre_funcion, permiso in acciones_rol.items():
+            funcion = getattr(modulo, nombre_funcion, None)
+            if callable(funcion):
+                setattr(modulo, nombre_funcion, proteger(permiso, funcion))
+
+    permisos_documento_por_funcion = {
+        "nuevo_material": "modificar",
+        "editar_material": "modificar",
+        "eliminar_material": "eliminar",
+        "agregar_stock": "agregar",
+        "retirar_stock": "retirar",
+    }
+    for modulo in (app, core):
+        for nombre_funcion, permiso_documento in permisos_documento_por_funcion.items():
+            funcion = getattr(modulo, nombre_funcion, None)
+            if callable(funcion):
+                setattr(modulo, nombre_funcion, proteger_documento(permiso_documento, funcion))
 
     funcion_stock_original = app.actualizar_stock_documento
     def actualizar_stock_con_usuario(*args, **kwargs):
