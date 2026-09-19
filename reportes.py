@@ -455,6 +455,7 @@ def generar_reporte_inventario_excel(app):
 # ============================================================
 
 def generar_reporte_movimientos_excel(
+    app,
     ventana=None,
     fecha_desde=None,
     fecha_hasta=None,
@@ -490,7 +491,7 @@ def generar_reporte_movimientos_excel(
         return
 
     movimientos = (
-        obtener_movimientos_del_inventario()
+        obtener_movimientos_del_inventario(app)
     )
 
     movimientos_filtrados = []
