@@ -28,12 +28,7 @@ jobs:
       - name: Build executable
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed \
-            --name "Inventario Material Naval" \
-            --add-data "plantillas;plantillas" \
-            --hidden-import "win32com.client" \
-            --hidden-import "win32com.server" \
-            inicio.py
+          pyinstaller --noconfirm --clean --onefile --windowed --name "Inventario Material Naval" --add-data "plantillas;plantillas" --hidden-import "win32com.client" --hidden-import "win32com.server" inicio.py
 
       - name: Verify executable
         shell: pwsh
