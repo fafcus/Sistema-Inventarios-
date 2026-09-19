@@ -198,7 +198,18 @@ def ejecutar_aplicacion(datos_usuario):
     except Exception:
         pass
 
-    app.generar_relacion_transito_ui = lambda: abrir_selector_relacion_transito(app)
+    # La relación de tránsito también queda protegida por el permiso de rol.
+    def generar_relacion_transito_protegida():
+        if tiene_permiso(rol, "generar_relacion_transito"):
+            return abrir_selector_relacion_transito(app)
+        messagebox.showwarning(
+            "Permiso denegado",
+            "Tu usuario no tiene permiso para generar relaciones de tránsito.",
+            parent=getattr(app, "root", None),
+        )
+
+    app.generar_relacion_transito_ui = generar_relacion_transito_protegida
+    core.generar_relacion_transito_ui = generar_relacion_transito_protegida
 
     def agregar_controles_admin():
         # main.py es una fachada: la ventana real pertenece a main_original.py.
