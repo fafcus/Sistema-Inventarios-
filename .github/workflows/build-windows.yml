@@ -1,0 +1,52 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller supabase httpx openpyxl pywin32
+
+      - name: Build executable
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed \
+            --name "Inventario Material Naval" \
+            --add-data "plantillas;plantillas" \
+            --hidden-import "win32com.client" \
+            --hidden-import "win32com.server" \
+            inicio.py
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/Inventario Material Naval.exe")) {
+            throw "No se generó el ejecutable."
+          }
+          Get-Item "dist/Inventario Material Naval.exe" | Select-Object Name,Length,FullName
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Inventario-Material-Naval-v1.0.0
+          path: "dist/Inventario Material Naval.exe"
+          if-no-files-found: error
+          retention-days: 30
