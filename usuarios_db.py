@@ -30,6 +30,7 @@ PERMISOS = {
         "agregar_stock",
         "retirar_stock",
         "administrar_usuarios",
+        "generar_relacion_transito",
     },
     "encargado": {
         "ver_inventario",
@@ -40,6 +41,7 @@ PERMISOS = {
         "eliminar_material",
         "agregar_stock",
         "retirar_stock",
+        "generar_relacion_transito",
     },
            "consulta": {
         "ver_inventario",
