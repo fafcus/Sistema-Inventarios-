@@ -1,0 +1,8 @@
+# Dependencias de ejecución - Sistema de Inventarios
+supabase
+httpx
+openpyxl
+python-docx
+
+# Herramienta de compilación (solo para generar el .exe)
+pyinstaller
